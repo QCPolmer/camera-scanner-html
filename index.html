@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- 
-  Paper Scanner
+  Paper Scanner - Rollback + Touch Fix
   Built with help from Grok (xAI)
   Feel free to use, modify, and distribute under MIT License.
 -->
@@ -13,7 +13,7 @@
     <style>
         body { 
             font-family: sans-serif; 
-            margin: 8px; 
+            margin: 10px; 
             background: #1a1a1a; 
             color: #eee; 
         }
@@ -42,7 +42,7 @@
         }
         .main-area {
             display: flex;
-            gap: 12px;
+            gap: 15px;
             margin: 15px 0;
             flex-wrap: wrap;
         }
@@ -53,23 +53,21 @@
             margin: 15px 0;
             color: #ddd;
         }
-        label { display: inline-block; width: 160px; }
-        input[type="range"] { width: 300px; }
     </style>
 </head>
 <body>
 
 <div class="note">
-    <strong>Note:</strong> Use landscape mode on mobile.<br>
-    Tap "Toggle Camera" twice if cameras don't appear.
+    <strong>Note:</strong> Tap "Toggle Camera" twice if the list doesn't populate.<br>
+    Use landscape on mobile. Turn on phone flashlight manually.
 </div>
 
 <div class="controls">
     <button onclick="toggleCamera()">📹 Toggle Camera</button>
     <button onclick="takePicture()">📸 Take Picture</button>
     <button onclick="importImage()">📁 Import Image</button>
-    <button onclick="renderFull()">🔄 Render Full</button>
-    <button onclick="resetPoints()">🔄 Reset</button>
+    <button onclick="renderFull()">🔄 Render Full Output</button>
+    <button onclick="resetPoints()">🔄 Reset All</button>
     <button onclick="exportWarped()">💾 Export</button>
 </div>
 
@@ -78,7 +76,7 @@
     <option value="640x480">640x480</option>
     <option value="1280x720" selected>1280x720</option>
     <option value="1920x1080">1920x1080</option>
-    <option value="3840x2160">3840x2160 (4K - slow)</option>
+    <option value="3840x2160">3840x2160 (4K)</option>
 </select>
 
 <video id="video_takepicture_div" autoplay playsinline></video>
@@ -139,22 +137,13 @@
             <option value="0.772">US Letter Portrait</option>
         </select>
     </div>
-
-    <div style="margin-top:12px">
-        <label>Fine Aspect: <span id="fine_aspect_value">1.33</span></label>
-        <input type="range" id="fine_aspect_slider" min="0.5" max="3.0" value="1.33" step="0.01" 
-               oninput="updateFineAspect(this.value)">
-        <input type="number" id="fine_aspect_input" value="1.33" step="0.01" 
-               style="width:80px; background:#333; color:#fff; border:1px solid #666;" 
-               onchange="updateFineAspect(this.value)">
-    </div>
 </div>
 
 <h3>Final Warped Result</h3>
 <canvas id="result_canvas"></canvas>
 
 <script>
-// Built with help from Grok (xAI)
+// Built with help from Grok (xAI) — feel free to use and modify freely.
 
 let currentStream = null;
 let isCameraOn = false;
@@ -180,7 +169,7 @@ function initCanvases() {
     resultCtx = result_canvas.getContext('2d');
     previewCtx = live_preview.getContext('2d');
 
-    // Dual event listeners for maximum compatibility
+    // Dual listeners: pointer + touch
     source_canvas.addEventListener('pointerdown', onPointerDown);
     source_canvas.addEventListener('pointermove', onPointerMove);
     source_canvas.addEventListener('pointerup', onPointerUp);
@@ -226,9 +215,9 @@ function resetPoints(initial = false) {
     }
 }
 
-// ====================== POINTER + TOUCH ======================
+// Pointer events
 function onPointerDown(e) {
-    handleStart(e.clientX, e.clientY, e);
+    handleStart(e.clientX, e.clientY);
 }
 
 function onPointerMove(e) {
@@ -241,6 +230,7 @@ function onPointerUp() {
     draggingIndex = -1;
 }
 
+// Touch events
 function onTouchStart(e) {
     e.preventDefault();
     const touch = e.touches[0];
@@ -264,14 +254,18 @@ function handleStart(clientX, clientY) {
     const mx = clientX - rect.left;
     const my = clientY - rect.top;
 
+    console.log(`Touch/Click at: ${mx.toFixed(0)}, ${my.toFixed(0)}`);
+
     for (let i = 0; i < 4; i++) {
         const dx = mx - points[i].x;
         const dy = my - points[i].y;
-        if (dx*dx + dy*dy < 1200) {   // very generous for fingers
+        if (dx*dx + dy*dy < 1200) {
             draggingIndex = i;
+            console.log(`Started dragging point ${i}`);
             return;
         }
     }
+    console.log("No point hit");
 }
 
 function handleMove(clientX, clientY) {
@@ -314,7 +308,7 @@ function redrawSource() {
     }
 }
 
-// ====================== RENDER FULL ======================
+// Render Full (only when button pressed)
 function renderFull() {
     if (!capturedImage) return;
 
@@ -388,7 +382,7 @@ function renderFull() {
     }
 }
 
-// Simple controls
+// Simple helper functions
 function updateOutputScale(val) {
     outputScale = parseFloat(val);
     document.getElementById('output_scale_value').textContent = outputScale.toFixed(2);
@@ -471,6 +465,29 @@ function exportWarped() {
     a.download = 'paper_scan.png';
     a.href = result_canvas.toDataURL('image/png');
     a.click();
+}
+
+function redrawSource() {
+    if (!capturedImage) return;
+    sourceCtx.drawImage(capturedImage, 0, 0, source_canvas.width, source_canvas.height);
+
+    sourceCtx.strokeStyle = '#0f0';
+    sourceCtx.lineWidth = 4;
+    sourceCtx.beginPath();
+    sourceCtx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < 4; i++) sourceCtx.lineTo(points[i].x, points[i].y);
+    sourceCtx.closePath();
+    sourceCtx.stroke();
+
+    sourceCtx.fillStyle = '#f00';
+    for (let p of points) {
+        sourceCtx.beginPath();
+        sourceCtx.arc(p.x, p.y, 15, 0, Math.PI*2);
+        sourceCtx.fill();
+        sourceCtx.strokeStyle = '#fff';
+        sourceCtx.lineWidth = 3;
+        sourceCtx.stroke();
+    }
 }
 
 window.onload = initCanvases;
