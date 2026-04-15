@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- 
-  Paper Scanner
+  Paper Scanner - Mobile Drag Fix
   Built with help from Grok (xAI)
   Feel free to use, modify, and distribute under MIT License.
 -->
@@ -20,8 +20,8 @@
 <body>
 
 <div class="note">
-    <strong>Note:</strong> Tap "Toggle Camera" twice if the list doesn't populate.<br>
-    Use landscape on mobile.
+    <strong>Note:</strong> Use landscape on mobile.<br>
+    Tap "Toggle Camera" twice if the list doesn't populate.
 </div>
 
 <div>
@@ -103,17 +103,17 @@ function resetPoints(initial = false) {
     brightness = 0;
     contrast = 0;
 
-    document.getElementById('point_rotate_slider').value = 0;
-    document.getElementById('point_rotate_value').textContent = '0°';
-    document.getElementById('output_scale_slider').value = 1.0;
-    document.getElementById('output_scale_value').textContent = '1.0';
-    document.getElementById('brightness_slider').value = 0;
-    document.getElementById('bright_value').textContent = '0';
-    document.getElementById('contrast_slider').value = 0;
-    document.getElementById('contrast_value').textContent = '0';
-    document.getElementById('fine_aspect_slider').value = 1.333;
-    document.getElementById('fine_aspect_input').value = '1.33';
-    document.getElementById('aspect_select').value = '1.333';
+    // Safe checks
+    const els = ['point_rotate_slider','point_rotate_value','output_scale_slider','output_scale_value',
+                 'brightness_slider','bright_value','contrast_slider','contrast_value',
+                 'fine_aspect_slider','fine_aspect_input','aspect_select'];
+    els.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            if (id.includes('slider') || id.includes('input')) el.value = id.includes('aspect') ? 1.333 : 0;
+            if (id.includes('value')) el.textContent = '0°';
+        }
+    });
 
     if (!initial && capturedImage) {
         redrawSource();
@@ -121,7 +121,7 @@ function resetPoints(initial = false) {
     }
 }
 
-// Pointer
+// Pointer events
 function onPointerDown(e) {
     handleStart(e.clientX, e.clientY);
 }
@@ -136,7 +136,7 @@ function onPointerUp() {
     draggingIndex = -1;
 }
 
-// Touch
+// Touch events
 function onTouchStart(e) {
     e.preventDefault();
     const touch = e.touches[0];
@@ -165,7 +165,7 @@ function handleStart(clientX, clientY) {
     for (let i = 0; i < 4; i++) {
         const dx = mx - points[i].x;
         const dy = my - points[i].y;
-        if (dx*dx + dy*dy < 1200) {
+        if (dx*dx + dy*dy < 1400) {   // even larger hit area for fingers
             draggingIndex = i;
             console.log(`Dragging point ${i}`);
             return;
@@ -205,7 +205,7 @@ function redrawSource() {
     sourceCtx.fillStyle = '#f00';
     for (let p of points) {
         sourceCtx.beginPath();
-        sourceCtx.arc(p.x, p.y, 15, 0, Math.PI*2);
+        sourceCtx.arc(p.x, p.y, 16, 0, Math.PI*2);
         sourceCtx.fill();
         sourceCtx.strokeStyle = '#fff';
         sourceCtx.lineWidth = 3;
@@ -213,7 +213,6 @@ function redrawSource() {
     }
 }
 
-// Render Full
 function renderFull() {
     if (!capturedImage) return;
 
@@ -329,7 +328,7 @@ function switchCamera(newDeviceId) {
     if (isCameraOn && newDeviceId) startStream(newDeviceId);
 }
 
-// Other functions
+// Simple controls
 function rotatePoints(degrees) {
     pointRotation = parseFloat(degrees);
     document.getElementById('point_rotate_value').textContent = pointRotation.toFixed(1) + '°';
@@ -435,29 +434,6 @@ function exportWarped() {
     a.download = 'paper_scan.png';
     a.href = result_canvas.toDataURL('image/png');
     a.click();
-}
-
-function redrawSource() {
-    if (!capturedImage) return;
-    sourceCtx.drawImage(capturedImage, 0, 0, source_canvas.width, source_canvas.height);
-
-    sourceCtx.strokeStyle = '#0f0';
-    sourceCtx.lineWidth = 4;
-    sourceCtx.beginPath();
-    sourceCtx.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < 4; i++) sourceCtx.lineTo(points[i].x, points[i].y);
-    sourceCtx.closePath();
-    sourceCtx.stroke();
-
-    sourceCtx.fillStyle = '#f00';
-    for (let p of points) {
-        sourceCtx.beginPath();
-        sourceCtx.arc(p.x, p.y, 15, 0, Math.PI*2);
-        sourceCtx.fill();
-        sourceCtx.strokeStyle = '#fff';
-        sourceCtx.lineWidth = 3;
-        sourceCtx.stroke();
-    }
 }
 
 window.onload = initCanvases;
