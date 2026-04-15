@@ -59,14 +59,14 @@
 <body>
 
 <div class="note">
-    <strong>Note:</strong> Tap "Toggle Camera" twice if the camera list doesn't populate. Works best in landscape on mobile.
+    <strong>Note:</strong> Tap "Toggle Camera" twice if the camera list doesn't populate.<br>
+    On mobile: Use landscape mode. Turn on your phone's flashlight manually if needed.
 </div>
 
 <div class="controls">
     <button onclick="toggleCamera()">📹 Toggle Camera</button>
     <button onclick="takePicture()">📸 Take Picture</button>
     <button onclick="importImage()">📁 Import Image</button>
-    <button onclick="toggleTorch()">🔦 Light: <span id="torch_status">OFF</span></button>
     <button onclick="forceWarp()">🔄 Force Warp</button>
     <button onclick="resetPoints()">🔄 Reset All</button>
     <button onclick="exportWarped()">💾 Export</button>
@@ -77,7 +77,7 @@
     <option value="640x480">640x480</option>
     <option value="1280x720" selected>1280x720</option>
     <option value="1920x1080">1920x1080</option>
-    <option value="3840x2160">3840x2160 (4K - slow on phones)</option>
+    <option value="3840x2160">3840x2160 (4K - may be slow)</option>
 </select>
 
 <video id="video_takepicture_div" autoplay playsinline></video>
@@ -93,7 +93,7 @@
             <input type="checkbox" id="show_live_preview" checked onchange="toggleLivePreview()">
             Show Live Preview
         </label>
-        <canvas id="live_preview" width="400" height="300" style="display:none;"></canvas>
+        <canvas id="live_preview" width="400" height="300"></canvas>
     </div>
 </div>
 
@@ -102,7 +102,7 @@
     
     <div>
         <label>Rotate Points:</label>
-        <input type="range" id="point_rotate_slider" min="0" max="360" value="0" step="0.2" 
+        <input type="range" id="point_rotate_slider" min="0" max="360" value="0" step="0.05" 
                oninput="rotatePoints(this.value)">
         <span id="point_rotate_value">0°</span>
     </div>
@@ -167,8 +167,6 @@ let currentStream = null;
 let isCameraOn = false;
 let capturedImage = null;
 let currentDeviceId = null;
-let videoTrack = null;
-let torchEnabled = false;
 
 let sourceCtx, resultCtx, previewCtx;
 let points = [];
@@ -197,7 +195,7 @@ function initCanvases() {
     source_canvas.addEventListener('mouseup', onMouseUp);
     source_canvas.addEventListener('mouseleave', onMouseUp);
 
-    // Touch (better hit area for mobile)
+    // Touch (improved)
     source_canvas.addEventListener('touchstart', handleTouch, { passive: false });
     source_canvas.addEventListener('touchmove', handleTouch, { passive: false });
     source_canvas.addEventListener('touchend', () => { draggingIndex = -1; forceWarp(); });
@@ -242,58 +240,12 @@ function resetPoints(initial = false) {
     }
 }
 
-// ====================== TORCH ======================
-async function toggleTorch() {
-    if (!videoTrack) {
-        alert("Start the camera first (preferably back camera).");
-        return;
-    }
-
-    torchEnabled = !torchEnabled;
-
-    try {
-        await videoTrack.applyConstraints({
-            advanced: [{ torch: torchEnabled }]
-        });
-        document.getElementById('torch_status').textContent = torchEnabled ? 'ON' : 'OFF';
-    } catch (err) {
-        console.error(err);
-        alert("Torch failed. Try using the back camera.");
-        torchEnabled = !torchEnabled;
-    }
-}
-
-// Camera functions
-async function startStream(deviceId) {
-    if (currentStream) currentStream.getTracks().forEach(t => t.stop());
-
-    const res = resolution_select_div.value.split('x').map(Number);
-    const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-            deviceId: deviceId ? { exact: deviceId } : undefined,
-            width: { ideal: res[0] },
-            height: { ideal: res[1] },
-            facingMode: { ideal: "environment" }   // prefer back camera for torch
-        }
-    });
-
-    currentStream = stream;
-    video_takepicture_div.srcObject = stream;
-    currentDeviceId = deviceId || stream.getVideoTracks()[0].getSettings().deviceId;
-    isCameraOn = true;
-    videoTrack = stream.getVideoTracks()[0];   // important for torch
-}
-
-function switchCamera(newDeviceId) {
-    if (isCameraOn && newDeviceId) startStream(newDeviceId);
-}
-
+// Camera
 async function toggleCamera() {
     if (isCameraOn) {
         if (currentStream) currentStream.getTracks().forEach(t => t.stop());
         video_takepicture_div.srcObject = null;
         isCameraOn = false;
-        videoTrack = null;
         return;
     }
 
@@ -320,7 +272,29 @@ async function toggleCamera() {
     }
 }
 
-// Rotate, Scale, Brightness, Contrast, Aspect (same as before, just cleaner)
+async function startStream(deviceId) {
+    if (currentStream) currentStream.getTracks().forEach(t => t.stop());
+
+    const res = resolution_select_div.value.split('x').map(Number);
+    const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+            deviceId: deviceId ? { exact: deviceId } : undefined,
+            width: { ideal: res[0] },
+            height: { ideal: res[1] }
+        }
+    });
+
+    currentStream = stream;
+    video_takepicture_div.srcObject = stream;
+    currentDeviceId = deviceId || stream.getVideoTracks()[0].getSettings().deviceId;
+    isCameraOn = true;
+}
+
+function switchCamera(newDeviceId) {
+    if (isCameraOn && newDeviceId) startStream(newDeviceId);
+}
+
+// Rotate (very fine control)
 function rotatePoints(degrees) {
     pointRotation = parseFloat(degrees);
     document.getElementById('point_rotate_value').textContent = pointRotation.toFixed(1) + '°';
@@ -344,6 +318,7 @@ function rotatePoints(degrees) {
     forceWarp();
 }
 
+// Output controls
 function updateOutputScale(val) {
     outputScale = parseFloat(val);
     document.getElementById('output_scale_value').textContent = outputScale.toFixed(2);
@@ -380,7 +355,12 @@ function updateFineAspect(val) {
     forceWarp();
 }
 
-// Mouse & Touch (improved hit area)
+function toggleLivePreview() {
+    showLivePreview = document.getElementById('show_live_preview').checked;
+    forceWarp();
+}
+
+// Mouse & Touch (larger hit area for mobile)
 function onMouseDown(e) {
     const rect = source_canvas.getBoundingClientRect();
     const mx = e.clientX - rect.left;
@@ -388,7 +368,7 @@ function onMouseDown(e) {
     for (let i = 0; i < 4; i++) {
         const dx = mx - points[i].x;
         const dy = my - points[i].y;
-        if (dx*dx + dy*dy < 600) {   // larger hit area for mobile
+        if (dx*dx + dy*dy < 800) {   // larger for fingers
             draggingIndex = i;
             return;
         }
@@ -420,7 +400,7 @@ function handleTouch(e) {
         for (let i = 0; i < 4; i++) {
             const dx = mx - points[i].x;
             const dy = my - points[i].y;
-            if (dx*dx + dy*dy < 600) {
+            if (dx*dx + dy*dy < 800) {
                 draggingIndex = i;
                 break;
             }
@@ -456,7 +436,7 @@ function redrawSource() {
     sourceCtx.fillStyle = '#f00';
     for (let p of points) {
         sourceCtx.beginPath();
-        sourceCtx.arc(p.x, p.y, 12, 0, Math.PI*2);   // slightly larger points
+        sourceCtx.arc(p.x, p.y, 13, 0, Math.PI*2);
         sourceCtx.fill();
         sourceCtx.strokeStyle = '#fff';
         sourceCtx.lineWidth = 3;
@@ -464,7 +444,7 @@ function redrawSource() {
     }
 }
 
-// ====================== MAIN WARP ======================
+// Main warp (clean, no debug text)
 function forceWarp() {
     if (!capturedImage) return;
 
@@ -526,12 +506,12 @@ function forceWarp() {
     resultCtx.putImageData(dstImageData, 0, 0);
 
     if (applyBlur && document.getElementById('apply_blur').checked) {
-        resultCtx.filter = 'blur(1.2px)';
+        resultCtx.filter = 'blur(1px)';
         resultCtx.drawImage(result_canvas, 0, 0);
         resultCtx.filter = 'none';
     }
 
-    // Live preview (only if enabled)
+    // Live preview only if enabled
     if (showLivePreview) {
         previewCtx.clearRect(0, 0, live_preview.width, live_preview.height);
         previewCtx.drawImage(result_canvas, 0, 0, live_preview.width, live_preview.height);
@@ -539,19 +519,10 @@ function forceWarp() {
     } else {
         live_preview.style.display = 'none';
     }
-
-    resultCtx.fillStyle = '#ff0';
-    resultCtx.font = 'bold 18px sans-serif';
-    resultCtx.fillText(`Scale: ${outputScale.toFixed(2)}x | Aspect: ${fineAspectRatio.toFixed(3)} | Rot: ${pointRotation.toFixed(1)}°`, 30, 45);
 }
 
-function toggleLivePreview() {
-    showLivePreview = document.getElementById('show_live_preview').checked;
-    forceWarp();
-}
-
-// Import, Take Picture, Export (same as before)
-function importImage() { /* ... same as previous ... */ 
+// Import & Take Picture
+function importImage() {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/*';
@@ -577,8 +548,9 @@ function importImage() { /* ... same as previous ... */
     input.click();
 }
 
-function takePicture() { /* ... same ... */ 
+function takePicture() {
     if (!video_takepicture_div.srcObject) return alert("Camera not running");
+
     const temp = document.createElement('canvas');
     temp.width = video_takepicture_div.videoWidth;
     temp.height = video_takepicture_div.videoHeight;
