@@ -85,6 +85,8 @@ const dstCvs = document.getElementById('dst-cvs'), dstCtx = dstCvs.getContext('2
 const v = document.getElementById('v-temp');
 const status = document.getElementById('status');
 
+
+    
 // 1. PRIME CAMERAS: Request permission then list all devices
 async function primeCameras() {
     status.innerText = "Requesting permission...";
@@ -190,6 +192,19 @@ function initUI() {
 function setAspect(val) { document.getElementById('aspect-slider').value = val; renderResult(); }
 function rotate(deg) { rotation = (rotation + deg) % 360; renderResult(); }
 
+function flipAspect() {
+    const slider = document.getElementById('aspect-slider');
+    // Calculate inverse: 1 / current_ratio
+    const newRatio = 1 / parseFloat(slider.value);
+    
+    // Ensure we don't exceed the slider's min/max limits
+    if (newRatio < 0.5) slider.min = newRatio;
+    if (newRatio > 2.5) slider.max = newRatio;
+    
+    slider.value = newRatio.toFixed(2);
+    renderResult();
+}
+    
 // Interaction Logic
 srcCvs.addEventListener('pointerdown', e => {
     const r = srcCvs.getBoundingClientRect();
