@@ -320,19 +320,96 @@ function onPointerDown(e) {
     }
 }
 
+let isRendering = false;
+let cachedSrcData = null;
+let cachedSrcWidth = 0;
+let cachedSrcHeight = 0;
+
+// Call this once after taking a picture or importing
+function cacheImageData() {
+    if (!capturedImage) return;
+    const offscreen = document.createElement('canvas');
+    offscreen.width = capturedImage.width;
+    offscreen.height = capturedImage.height;
+    const ctx = offscreen.getContext('2d');
+    ctx.drawImage(capturedImage, 0, 0);
+    const imgData = ctx.getImageData(0, 0, offscreen.width, offscreen.height);
+    cachedSrcData = imgData.data;
+    cachedSrcWidth = offscreen.width;
+    cachedSrcHeight = offscreen.height;
+}
+
 function onPointerMove(e) {
     if (draggingIndex === -1) return;
-    const rect = source_canvas.getBoundingClientRect();
     
+    const rect = source_canvas.getBoundingClientRect();
     const scaleX = source_canvas.width / rect.width;
     const scaleY = source_canvas.height / rect.height;
 
-    // Apply the scale when moving the point
     points[draggingIndex].x = (e.clientX - rect.left) * scaleX;
     points[draggingIndex].y = (e.clientY - rect.top) * scaleY;
 
     clampPoints();
     redrawSource();
+
+    // Only request a preview render if one isn't already queued
+    if (!isRendering) {
+        isRendering = true;
+        requestAnimationFrame(() => {
+            renderPreview();
+            isRendering = false;
+        });
+    }
+}
+
+function performWarping(targetCanvas, targetCtx, isPreview) {
+    if (!cachedSrcData) return;
+
+    const baseW = isPreview ? 300 : Math.round(cachedSrcWidth * outputScale); 
+    const baseH = Math.round(baseW / fineAspectRatio);
+    
+    if (targetCanvas.width !== baseW) targetCanvas.width = baseW;
+    if (targetCanvas.height !== baseH) targetCanvas.height = baseH;
+
+    const dstImageData = targetCtx.createImageData(baseW, baseH);
+    const dstData = dstImageData.data;
+
+    const scaleX = cachedSrcWidth / source_canvas.width;
+    const scaleY = cachedSrcHeight / source_canvas.height;
+    const srcPts = points.map(p => ({ x: p.x * scaleX, y: p.y * scaleY }));
+
+    // Optimization: Pre-calculate constants outside the loop
+    const p0 = srcPts[0], p1 = srcPts[1], p2 = srcPts[2], p3 = srcPts[3];
+    const contrastFactor = (1 + contrast / 100);
+
+    for (let y = 0; y < baseH; y++) {
+        const v = y / baseH;
+        const vInv = 1 - v;
+        
+        for (let x = 0; x < baseW; x++) {
+            const u = x / baseW;
+            const uInv = 1 - u;
+
+            // Bilinear interpolation for the perspective warp
+            const srcX = uInv * vInv * p0.x + u * vInv * p1.x + u * v * p2.x + uInv * v * p3.x;
+            const srcY = uInv * vInv * p0.y + u * vInv * p1.y + u * v * p2.y + uInv * v * p3.y;
+
+            const sx = (srcX + 0.5) | 0; // Faster Math.round
+            const sy = (srcY + 0.5) | 0;
+
+            if (sx >= 0 && sx < cachedSrcWidth && sy >= 0 && sy < cachedSrcHeight) {
+                const srcIdx = (sy * cachedSrcWidth + sx) << 2; // Faster multiplication
+                const dstIdx = (y * baseW + x) << 2;
+
+                // Brightness/Contrast inline
+                dstData[dstIdx]     = (cachedSrcData[srcIdx] - 128) * contrastFactor + 128 + brightness;
+                dstData[dstIdx + 1] = (cachedSrcData[srcIdx + 1] - 128) * contrastFactor + 128 + brightness;
+                dstData[dstIdx + 2] = (cachedSrcData[srcIdx + 2] - 128) * contrastFactor + 128 + brightness;
+                dstData[dstIdx + 3] = 255;
+            }
+        }
+    }
+    targetCtx.putImageData(dstImageData, 0, 0);
 }
 function onPointerUp(e) {
     if (draggingIndex !== -1) {
@@ -372,7 +449,7 @@ function redrawSource() {
         sourceCtx.stroke();
     }
 }
-
+/*
 // FIX 2: CORE LOGIC SEPARATION
 // Core math function that can process either the preview canvas or the huge output canvas
 function performWarping(targetCanvas, targetCtx, isPreview) {
@@ -445,7 +522,7 @@ function performWarping(targetCanvas, targetCtx, isPreview) {
 
     targetCtx.putImageData(dstImageData, 0, 0);
 }
-
+*/
 // Wrapper for UI elements to call
 function renderPreview() {
     performWarping(live_preview, previewCtx, true);
