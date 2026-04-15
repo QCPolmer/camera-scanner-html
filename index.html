@@ -155,7 +155,7 @@
 <canvas id="result_canvas"></canvas>
 
 <script>
-// Built with help from Grok (xAI) — feel free to use and modify freely.
+// Built with help from Grok (xAI) & Gemini — feel free to use and modify freely.
 
 let currentStream = null;
 let isCameraOn = false;
@@ -178,21 +178,39 @@ Array.from(document.querySelectorAll('*')).forEach(el => {
 
 function initCanvases() {
     sourceCtx = source_canvas.getContext('2d');
-    resultCtx = result_canvas.getContext('2d');
-    previewCtx = live_preview.getContext('2d');
+    resultCtx = result_canvas.getContext('2d', { willReadFrequently: true });
+    previewCtx = live_preview.getContext('2d', { willReadFrequently: true });
 
-    // Dual listeners for maximum mobile compatibility
+    // FIX 1: Use ONLY Pointer events for maximum cross-device compatibility.
+    // Removed the conflicting touchstart/move/end listeners.
     source_canvas.addEventListener('pointerdown', onPointerDown);
     source_canvas.addEventListener('pointermove', onPointerMove);
     source_canvas.addEventListener('pointerup', onPointerUp);
     source_canvas.addEventListener('pointerleave', onPointerUp);
-
-    source_canvas.addEventListener('touchstart', onTouchStart, { passive: false });
-    source_canvas.addEventListener('touchmove', onTouchMove, { passive: false });
-    source_canvas.addEventListener('touchend', onTouchEnd);
+    source_canvas.addEventListener('pointercancel', onPointerUp); // Catches system interruptions
 
     resetPoints(true);
 }
+
+// --- MISSING CAMERA FUNCTIONS ADDED ---
+async function toggleCamera() {
+    if (isCameraOn) {
+        if (currentStream) currentStream.getTracks().forEach(track => track.stop());
+        video_takepicture_div.srcObject = null;
+        isCameraOn = false;
+    } else {
+        try {
+            currentStream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: 'environment' } 
+            });
+            video_takepicture_div.srcObject = currentStream;
+            isCameraOn = true;
+        } catch (err) {
+            alert("Could not access camera: " + err.message);
+        }
+    }
+}
+// --------------------------------------
 
 function resetPoints(initial = false) {
     const w = source_canvas.width;
@@ -209,7 +227,6 @@ function resetPoints(initial = false) {
     brightness = 0;
     contrast = 0;
 
-    // Safe element checks
     const els = ['point_rotate_slider','point_rotate_value','output_scale_slider','output_scale_value',
                  'brightness_slider','bright_value','contrast_slider','contrast_value',
                  'fine_aspect_slider','fine_aspect_input','aspect_select'];
@@ -223,66 +240,44 @@ function resetPoints(initial = false) {
 
     if (!initial && capturedImage) {
         redrawSource();
-        renderFull();
+        renderPreview(); // FIX 2: Default to lightweight preview
     }
 }
 
 // Pointer events
 function onPointerDown(e) {
-    handleStart(e.clientX, e.clientY);
-}
-
-function onPointerMove(e) {
-    if (draggingIndex === -1) return;
-    handleMove(e.clientX, e.clientY);
-}
-
-function onPointerUp() {
-    if (draggingIndex !== -1) renderFull();
-    draggingIndex = -1;
-}
-
-// Touch events
-function onTouchStart(e) {
-    e.preventDefault();
-    const touch = e.touches[0];
-    handleStart(touch.clientX, touch.clientY);
-}
-
-function onTouchMove(e) {
-    e.preventDefault();
-    if (draggingIndex === -1) return;
-    const touch = e.touches[0];
-    handleMove(touch.clientX, touch.clientY);
-}
-
-function onTouchEnd() {
-    if (draggingIndex !== -1) renderFull();
-    draggingIndex = -1;
-}
-
-function handleStart(clientX, clientY) {
+    // Capture the pointer to ensure events keep firing even if finger slides off element
+    source_canvas.setPointerCapture(e.pointerId); 
     const rect = source_canvas.getBoundingClientRect();
-    const mx = clientX - rect.left;
-    const my = clientY - rect.top;
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
 
     for (let i = 0; i < 4; i++) {
         const dx = mx - points[i].x;
         const dy = my - points[i].y;
-        if (dx*dx + dy*dy < 1600) {   // very generous for fingers
+        if (dx*dx + dy*dy < 1600) { 
             draggingIndex = i;
             return;
         }
     }
 }
 
-function handleMove(clientX, clientY) {
+function onPointerMove(e) {
+    if (draggingIndex === -1) return;
     const rect = source_canvas.getBoundingClientRect();
-    points[draggingIndex].x = clientX - rect.left;
-    points[draggingIndex].y = clientY - rect.top;
+    points[draggingIndex].x = e.clientX - rect.left;
+    points[draggingIndex].y = e.clientY - rect.top;
 
     clampPoints();
     redrawSource();
+}
+
+function onPointerUp(e) {
+    if (draggingIndex !== -1) {
+        source_canvas.releasePointerCapture(e.pointerId);
+        renderPreview(); // FIX 2: Only render preview on drop
+    }
+    draggingIndex = -1;
 }
 
 function clampPoints() {
@@ -316,16 +311,28 @@ function redrawSource() {
     }
 }
 
-function renderFull() {
+// FIX 2: CORE LOGIC SEPARATION
+// Core math function that can process either the preview canvas or the huge output canvas
+function performWarping(targetCanvas, targetCtx, isPreview) {
     if (!capturedImage) return;
 
-    let baseW = Math.round(capturedImage.width * outputScale);
-    let baseH = Math.round(baseW / fineAspectRatio);
+    let baseW, baseH;
 
-    result_canvas.width = baseW;
-    result_canvas.height = baseH;
+    if (isPreview) {
+        // Fast, fixed low-res size for the live preview
+        baseW = 380; 
+        baseH = Math.round(baseW / fineAspectRatio);
+        targetCanvas.width = baseW;
+        targetCanvas.height = baseH;
+    } else {
+        // Heavy, full-res size for the final export
+        baseW = Math.round(capturedImage.width * outputScale);
+        baseH = Math.round(baseW / fineAspectRatio);
+        targetCanvas.width = baseW;
+        targetCanvas.height = baseH;
+    }
 
-    resultCtx.clearRect(0, 0, baseW, baseH);
+    targetCtx.clearRect(0, 0, baseW, baseH);
 
     const srcCanvas = document.createElement('canvas');
     srcCanvas.width = capturedImage.width;
@@ -333,7 +340,7 @@ function renderFull() {
     srcCanvas.getContext('2d').drawImage(capturedImage, 0, 0);
 
     const srcData = srcCanvas.getContext('2d').getImageData(0, 0, srcCanvas.width, srcCanvas.height).data;
-    const dstImageData = resultCtx.createImageData(baseW, baseH);
+    const dstImageData = targetCtx.createImageData(baseW, baseH);
     const dstData = dstImageData.data;
 
     const scaleX = capturedImage.width / source_canvas.width;
@@ -374,16 +381,20 @@ function renderFull() {
         }
     }
 
-    resultCtx.putImageData(dstImageData, 0, 0);
-
-    // Live preview
-    if (document.getElementById('show_live_preview') && document.getElementById('show_live_preview').checked) {
-        previewCtx.clearRect(0, 0, live_preview.width, live_preview.height);
-        previewCtx.drawImage(result_canvas, 0, 0, live_preview.width, live_preview.height);
-    }
+    targetCtx.putImageData(dstImageData, 0, 0);
 }
 
-// Simple controls
+// Wrapper for UI elements to call
+function renderPreview() {
+    performWarping(live_preview, previewCtx, true);
+}
+
+// Wrapper for Export / Manual render
+function renderFull() {
+    performWarping(result_canvas, resultCtx, false);
+}
+
+// Controls
 function rotatePoints(degrees) {
     pointRotation = parseFloat(degrees);
     document.getElementById('point_rotate_value').textContent = pointRotation.toFixed(1) + '°';
@@ -404,9 +415,10 @@ function rotatePoints(degrees) {
     }
 
     redrawSource();
-    renderFull();
+    renderPreview(); // Now fast!
 }
 
+// FIX 2: All UI sliders now trigger renderPreview() instead of renderFull()
 function updateOutputScale(val) {
     outputScale = parseFloat(val);
     document.getElementById('output_scale_value').textContent = outputScale.toFixed(2);
@@ -415,17 +427,19 @@ function updateOutputScale(val) {
 function updateBrightness(val) {
     brightness = parseFloat(val);
     document.getElementById('bright_value').textContent = brightness;
+    renderPreview(); 
 }
 
 function updateContrast(val) {
     contrast = parseFloat(val);
     document.getElementById('contrast_value').textContent = contrast;
+    renderPreview();
 }
 
 function updateAspectFromDropdown() {
     const val = parseFloat(aspect_select.value);
     if (val > 0) fineAspectRatio = val;
-    renderFull();
+    renderPreview();
 }
 
 function updateFineAspect(val) {
@@ -433,7 +447,7 @@ function updateFineAspect(val) {
     document.getElementById('fine_aspect_slider').value = fineAspectRatio;
     document.getElementById('fine_aspect_input').value = fineAspectRatio.toFixed(3);
     document.getElementById('aspect_select').value = '0';
-    renderFull();
+    renderPreview();
 }
 
 function importImage() {
@@ -451,10 +465,9 @@ function importImage() {
                 const aspect = capturedImage.width / capturedImage.height;
                 source_canvas.width = 800;
                 source_canvas.height = Math.round(800 / aspect);
-                result_canvas.width = capturedImage.width;
-                result_canvas.height = capturedImage.height;
                 redrawSource();
-                renderFull();
+                renderPreview();
+                renderFull(); // Render full once on import
             };
         };
         reader.readAsDataURL(file);
@@ -477,41 +490,18 @@ function takePicture() {
         const aspect = capturedImage.width / capturedImage.height;
         source_canvas.width = 800;
         source_canvas.height = Math.round(800 / aspect);
-        result_canvas.width = capturedImage.width;
-        result_canvas.height = capturedImage.height;
         redrawSource();
-        renderFull();
+        renderPreview();
+        renderFull(); // Render full once on capture
     };
 }
 
 function exportWarped() {
+    renderFull(); // Ensure highest quality is generated right before export
     const a = document.createElement('a');
     a.download = 'paper_scan.png';
     a.href = result_canvas.toDataURL('image/png');
     a.click();
-}
-
-function redrawSource() {
-    if (!capturedImage) return;
-    sourceCtx.drawImage(capturedImage, 0, 0, source_canvas.width, source_canvas.height);
-
-    sourceCtx.strokeStyle = '#0f0';
-    sourceCtx.lineWidth = 4;
-    sourceCtx.beginPath();
-    sourceCtx.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < 4; i++) sourceCtx.lineTo(points[i].x, points[i].y);
-    sourceCtx.closePath();
-    sourceCtx.stroke();
-
-    sourceCtx.fillStyle = '#f00';
-    for (let p of points) {
-        sourceCtx.beginPath();
-        sourceCtx.arc(p.x, p.y, 16, 0, Math.PI*2);
-        sourceCtx.fill();
-        sourceCtx.strokeStyle = '#fff';
-        sourceCtx.lineWidth = 3;
-        sourceCtx.stroke();
-    }
 }
 
 window.onload = initCanvases;
