@@ -62,12 +62,14 @@
 
 <div class="card">
     <label>Adjust & Export</label>
-    <div class="btns">
-        <button onclick="rotate(-90)">↺ Rot</button>
-        <button onclick="rotate(90)">Rot ↻</button>
-        <button onclick="setAspect(1.414)">A4</button>
-        <button onclick="setAspect(1.29)">US</button>
-    </div>
+    <label>Aspect Ratio Presets</label>
+<div class="btns" style="grid-template-columns: 1fr 1fr 1fr 1fr;">
+    <button onclick="setAspect(1.41)" title="A4 Paper">A4</button>
+    <button onclick="setAspect(1.29)" title="US Letter">US</button>
+    <button onclick="setAspect(1.66)" title="3x5 Card">3x5</button>
+    <button onclick="setAspect(1.50)" title="4x6 Photo">4x6</button>
+</div>
+<button onclick="flipAspect()" style="width:100%; margin-bottom:10px; font-size:12px; background:#444;">⇄ Flip Portrait/Landscape</button>
     <input type="range" id="aspect-slider" min="0.5" max="2.0" step="0.01" value="0.75" oninput="renderResult()">
     <canvas id="dst-cvs"></canvas>
     <button class="accent" style="width:100%; margin-top:12px;" onclick="download()">💾 SAVE FINAL PNG</button>
