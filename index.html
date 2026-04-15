@@ -192,26 +192,77 @@ function initCanvases() {
     resetPoints(true);
 }
 
-// --- MISSING CAMERA FUNCTIONS ADDED ---
 async function toggleCamera() {
     if (isCameraOn) {
-        if (currentStream) currentStream.getTracks().forEach(track => track.stop());
-        video_takepicture_div.srcObject = null;
-        isCameraOn = false;
+        stopStream();
     } else {
-        try {
-            currentStream = await navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: 'environment' } 
-            });
-            video_takepicture_div.srcObject = currentStream;
-            isCameraOn = true;
-        } catch (err) {
-            alert("Could not access camera: " + err.message);
-        }
+        // First-time "Prime": Ask for any camera to get permissions
+        await startStream();
+        // Now that we have permission, names will be visible
+        await populateCameraList();
     }
 }
-// --------------------------------------
 
+function stopStream() {
+    if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+    }
+    video_takepicture_div.srcObject = null;
+    isCameraOn = false;
+}
+
+async function populateCameraList() {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoDevices = devices.filter(d => d.kind === 'videoinput');
+    
+    camera_list_div.innerHTML = '';
+    videoDevices.forEach((device, index) => {
+        const option = document.createElement('option');
+        option.value = device.deviceId;
+        option.text = device.label || `Camera ${index + 1}`;
+        camera_list_div.appendChild(option);
+    });
+}
+
+async function switchCamera(deviceId) {
+    currentDeviceId = deviceId;
+    if (isCameraOn) await startStream(deviceId);
+}
+
+async function startStream(deviceId = null) {
+    stopStream();
+
+    // Get resolution from the dropdown
+    const resString = resolution_select_div.value; // e.g., "3840x2160"
+    const [w, h] = resString.split('x').map(Number);
+
+    const constraints = {
+        video: {
+            width: { ideal: w },
+            height: { ideal: h },
+            deviceId: deviceId ? { exact: deviceId } : undefined
+        }
+    };
+
+    // If no deviceId, try to default to the back camera (environment)
+    if (!deviceId) {
+        constraints.video.facingMode = "environment";
+    }
+
+    try {
+        currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+        video_takepicture_div.srcObject = currentStream;
+        isCameraOn = true;
+        
+        // Log what we actually got (check your console for this!)
+        const settings = currentStream.getVideoTracks()[0].getSettings();
+        console.log(`Actual resolution: ${settings.width}x${settings.height}`);
+        
+    } catch (err) {
+        console.error("Camera error:", err);
+        alert("Could not start camera at this resolution. Try 1280x720.");
+    }
+}
 function resetPoints(initial = false) {
     const w = source_canvas.width;
     const h = source_canvas.height;
