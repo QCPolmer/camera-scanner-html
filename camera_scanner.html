@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<!-- 
+  Paper Scanner
+  Built with help from Grok (xAI)
+  Feel free to use, modify, and distribute under MIT License.
+	NOTE FROM HUMAN: grok made this, I just guided grok a bit
+-->
+
+
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Paper Scanner</title>
+    <style>
+        body { 
+            font-family: sans-serif; 
+            margin: 10px; 
+            background: #1a1a1a; 
+            color: #eee; 
+        }
+        video, canvas { 
+            background: #111; 
+            border: 2px solid #555; 
+            margin: 8px 0; 
+            display: block; 
+            max-width: 100%; 
+        }
+        button { 
+            padding: 12px 18px; 
+            margin: 5px; 
+            font-size: 16px; 
+            background: #333; 
+            color: #fff; 
+            border: 1px solid #666; 
+        }
+        .note { 
+            background: #333; 
+            color: #ffdd00; 
+            padding: 10px; 
+            border-radius: 6px; 
+            margin-bottom: 12px; 
+        }
+        .preview-container {
+            display: flex;
+            gap: 15px;
+            margin: 15px 0;
+            flex-wrap: wrap;
+        }
+        .output-controls {
+            background: #222; 
+            padding: 15px; 
+            border-radius: 8px; 
+            margin: 15px 0;
+            color: #ddd;
+        }
+        label { display: inline-block; width: 160px; }
+        input[type="range"] { width: 320px; }
+    </style>
+</head>
+<body>
+
+<div class="note">
+    <strong>Note:</strong> Tap "Toggle Camera" twice if the camera list doesn't populate. Works great on mobile.
+</div>
+
+<div class="controls">
+    <button onclick="toggleCamera()">?? Toggle Camera</button>
+    <button onclick="takePicture()">?? Take Picture</button>
+    <button onclick="importImage()">?? Import Image</button>
+    <button onclick="forceWarp()">?? Force Warp</button>
+    <button onclick="resetPoints()">?? Reset All</button>
+    <button onclick="exportWarped()">?? Export</button>
+    <button onclick="toggleTorch()">?? Light: <span id="torch_status">OFF</span></button>
+</div>
+
+<select id="camera_list_div" onchange="switchCamera(this.value)"></select>
+<select id="resolution_select_div" onchange="if(isCameraOn) startStream(currentDeviceId)">
+    <option value="640x480">640x480</option>
+    <option value="1280x720" selected>1280x720</option>
+    <option value="1920x1080">1920x1080</option>
+    <option value="3840x2160">3840x2160 (4K)</option>
+</select>
+
+<video id="video_takepicture_div" autoplay playsinline></video>
+
+<h3>Source — Drag the 4 red points</h3>
+
+<div class="preview-container">
+    <div>
+        <canvas id="source_canvas" width="800" height="600"></canvas>
+    </div>
+    <div>
+        <h4>Live Preview</h4>
+        <canvas id="live_preview" width="400" height="300"></canvas>
+    </div>
+</div>
+
+<div class="output-controls">
+    <strong>Output Controls</strong><br><br>
+    
+    <div>
+        <label>Rotate Points:</label>
+        <input type="range" id="point_rotate_slider" min="0" max="360" value="0" step="0.1" 
+               oninput="rotatePoints(this.value)">
+        <span id="point_rotate_value">0°</span>
+    </div>
+
+    <div>
+        <label>Output Scale: <span id="output_scale_value">1.0</span>x</label>
+        <input type="range" id="output_scale_slider" min="0.3" max="1.5" value="1.0" step="0.01" 
+               oninput="updateOutputScale(this.value)">
+    </div>
+
+    <div style="margin-top:10px">
+        <label>Brightness: <span id="bright_value">0</span></label>
+        <input type="range" id="brightness_slider" min="-50" max="50" value="0" step="1" 
+               oninput="updateBrightness(this.value)">
+    </div>
+
+    <div>
+        <label>Contrast: <span id="contrast_value">0</span></label>
+        <input type="range" id="contrast_slider" min="-50" max="50" value="0" step="1" 
+               oninput="updateContrast(this.value)">
+    </div>
+
+    <div style="margin-top:15px">
+        <label><input type="checkbox" id="lock_aspect" onchange="forceWarp()"> Lock Aspect Ratio</label>
+    </div>
+
+    <div>
+        <label>Common Size:</label>
+        <select id="aspect_select" onchange="updateAspectFromDropdown()">
+            <option value="0">Free</option>
+            <option value="1.5">3:2</option>
+            <option value="1.333" selected>4:3</option>
+            <option value="1">1:1 Square</option>
+            <option value="1.586">Credit Card (˜3.37:2.13)</option>
+            <option value="1.667">3x5 Card</option>
+            <option value="0.707">A4 Portrait</option>
+            <option value="0.772">US Letter Portrait</option>
+            <option value="1">2x2 Passport</option>
+        </select>
+    </div>
+
+    <div style="margin-top:12px">
+        <label>Fine Aspect: <span id="fine_aspect_value">1.33</span></label>
+        <input type="range" id="fine_aspect_slider" min="0.5" max="3.0" value="1.33" step="0.01" 
+               oninput="updateFineAspect(this.value)">
+        <input type="number" id="fine_aspect_input" value="1.33" step="0.01" 
+               style="width:80px; background:#333; color:#fff; border:1px solid #666;" 
+               onchange="updateFineAspect(this.value)">
+    </div>
+
+    <div style="margin-top:12px">
+        <label><input type="checkbox" id="apply_blur" onchange="forceWarp()"> Light Blur (reduce grain)</label>
+    </div>
+</div>
+
+<h3>Final Warped Result</h3>
+<canvas id="result_canvas"></canvas>
+
+<script>
+// Built with help from Grok (xAI) — feel free to use and modify freely.
+
+
+let torchEnabled = false;
+let videoTrack = null;   // we'll store the active video track
+
+// Call this after starting the stream (e.g. inside startStream or after takePicture)
+function updateVideoTrack() {
+    if (currentStream) {
+        videoTrack = currentStream.getVideoTracks()[0];
+    }
+}
+
+// Toggle torch
+async function toggleTorch() {
+    if (!videoTrack) {
+        alert("No camera track active. Start the camera first.");
+        return;
+    }
+
+    torchEnabled = !torchEnabled;
+
+    try {
+        await videoTrack.applyConstraints({
+            advanced: [{ torch: torchEnabled }]
+        });
+        
+        document.getElementById('torch_status').textContent = torchEnabled ? 'ON' : 'OFF';
+        console.log("Torch set to:", torchEnabled ? "ON" : "OFF");
+    } catch (err) {
+        console.error("Torch error:", err);
+        alert("Could not toggle torch. This feature works best on Android with the back camera.");
+        torchEnabled = !torchEnabled; // revert
+    }
+}
+
+let currentStream = null;
+let isCameraOn = false;
+let capturedImage = null;
+let currentDeviceId = null;
+
+let sourceCtx, resultCtx, previewCtx;
+let points = [];
+let draggingIndex = -1;
+let pointRotation = 0;
+let fineAspectRatio = 1.333;
+let outputScale = 1.0;
+let brightness = 0;
+let contrast = 0;
+let applyBlur = false;
+
+const myGlobalThis = window;
+Array.from(document.querySelectorAll('*')).forEach(el => {
+    if (el.id) myGlobalThis[el.id] = el;
+});
+
+function initCanvases() {
+    sourceCtx = source_canvas.getContext('2d');
+    resultCtx = result_canvas.getContext('2d');
+    previewCtx = live_preview.getContext('2d');
+
+    source_canvas.addEventListener('mousedown', onMouseDown);
+    source_canvas.addEventListener('mousemove', onMouseMove);
+    source_canvas.addEventListener('mouseup', onMouseUp);
+    source_canvas.addEventListener('mouseleave', onMouseUp);
+
+    // Touch support
+    source_canvas.addEventListener('touchstart', handleTouch);
+    source_canvas.addEventListener('touchmove', handleTouch);
+    source_canvas.addEventListener('touchend', () => { draggingIndex = -1; forceWarp(); });
+
+    resetPoints(true);
+}
+
+function resetPoints(initial = false) {
+    const w = source_canvas.width;
+    const h = source_canvas.height;
+    points = [
+        {x: w*0.15, y: h*0.15},
+        {x: w*0.85, y: h*0.15},
+        {x: w*0.85, y: h*0.88},
+        {x: w*0.15, y: h*0.88}
+    ];
+    pointRotation = 0;
+    fineAspectRatio = 1.333;
+    outputScale = 1.0;
+    brightness = 0;
+    contrast = 0;
+    applyBlur = false;
+
+    document.getElementById('point_rotate_slider').value = 0;
+    document.getElementById('point_rotate_value').textContent = '0°';
+    document.getElementById('output_scale_slider').value = 1.0;
+    document.getElementById('output_scale_value').textContent = '1.0';
+    document.getElementById('brightness_slider').value = 0;
+    document.getElementById('bright_value').textContent = '0';
+    document.getElementById('contrast_slider').value = 0;
+    document.getElementById('contrast_value').textContent = '0';
+    document.getElementById('fine_aspect_slider').value = 1.333;
+    document.getElementById('fine_aspect_input').value = '1.33';
+    document.getElementById('aspect_select').value = '1.333';
+    document.getElementById('apply_blur').checked = false;
+
+    if (!initial && capturedImage) {
+        redrawSource();
+        forceWarp();
+    }
+}
+
+// Camera functions (unchanged)
+async function toggleCamera() { /* ... same as previous stable version ... */ 
+    if (isCameraOn) {
+        if (currentStream) currentStream.getTracks().forEach(t => t.stop());
+        video_takepicture_div.srcObject = null;
+        isCameraOn = false;
+        return;
+    }
+
+    try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(d => d.kind === 'videoinput');
+
+        camera_list_div.innerHTML = '';
+        videoDevices.forEach((dev, i) => {
+            const opt = document.createElement('option');
+            opt.value = dev.deviceId;
+            opt.textContent = dev.label || `Camera ${i+1}`;
+            camera_list_div.appendChild(opt);
+        });
+
+        if (videoDevices.length > 0) {
+            currentDeviceId = videoDevices[0].deviceId;
+            await startStream(currentDeviceId);
+            camera_list_div.value = currentDeviceId;
+        }
+    } catch (err) {
+        console.error(err);
+        alert("Camera error: " + err.message);
+    }
+}
+
+async function startStream(deviceId) {
+    if (currentStream) currentStream.getTracks().forEach(t => t.stop());
+
+    const res = resolution_select_div.value.split('x').map(Number);
+    const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+            deviceId: deviceId ? { exact: deviceId } : undefined,
+            width: { ideal: res[0] },
+            height: { ideal: res[1] }
+        }
+    });
+
+    currentStream = stream;
+    video_takepicture_div.srcObject = stream;
+    currentDeviceId = deviceId || stream.getVideoTracks()[0].getSettings().deviceId;
+    isCameraOn = true;
+}
+
+function switchCamera(newDeviceId) {
+    if (isCameraOn && newDeviceId) startStream(newDeviceId);
+}
+
+// Rotate points (smooth)
+function rotatePoints(degrees) {
+    pointRotation = parseFloat(degrees);
+    document.getElementById('point_rotate_value').textContent = pointRotation.toFixed(1) + '°';
+
+    if (!capturedImage) return;
+
+    const cx = (points[0].x + points[1].x + points[2].x + points[3].x) / 4;
+    const cy = (points[0].y + points[1].y + points[2].y + points[3].y) / 4;
+    const rad = pointRotation * Math.PI / 180;
+
+    const original = JSON.parse(JSON.stringify(points));
+
+    for (let i = 0; i < 4; i++) {
+        const dx = original[i].x - cx;
+        const dy = original[i].y - cy;
+        points[i].x = cx + dx * Math.cos(rad) - dy * Math.sin(rad);
+        points[i].y = cy + dx * Math.sin(rad) + dy * Math.cos(rad);
+    }
+
+    redrawSource();
+    forceWarp();
+}
+
+// Scale, Brightness, Contrast
+function updateOutputScale(val) {
+    outputScale = parseFloat(val);
+    document.getElementById('output_scale_value').textContent = outputScale.toFixed(2);
+    forceWarp();
+}
+
+function updateBrightness(val) {
+    brightness = parseFloat(val);
+    document.getElementById('bright_value').textContent = brightness;
+    forceWarp();
+}
+
+function updateContrast(val) {
+    contrast = parseFloat(val);
+    document.getElementById('contrast_value').textContent = contrast;
+    forceWarp();
+}
+
+// Aspect controls
+function updateAspectFromDropdown() {
+    const val = parseFloat(aspect_select.value);
+    if (val > 0) {
+        fineAspectRatio = val;
+        document.getElementById('fine_aspect_slider').value = val;
+        document.getElementById('fine_aspect_input').value = val.toFixed(3);
+    }
+    forceWarp();
+}
+
+function updateFineAspect(val) {
+    fineAspectRatio = parseFloat(val);
+    document.getElementById('fine_aspect_slider').value = fineAspectRatio;
+    document.getElementById('fine_aspect_input').value = fineAspectRatio.toFixed(3);
+    document.getElementById('aspect_select').value = '0';
+    forceWarp();
+}
+
+// Mouse & Touch (same as before)
+function onMouseDown(e) { /* ... same ... */ 
+    const rect = source_canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    for (let i = 0; i < 4; i++) {
+        const dx = mx - points[i].x;
+        const dy = my - points[i].y;
+        if (dx*dx + dy*dy < 400) {
+            draggingIndex = i;
+            return;
+        }
+    }
+}
+
+function onMouseMove(e) {
+    if (draggingIndex === -1) return;
+    const rect = source_canvas.getBoundingClientRect();
+    points[draggingIndex].x = e.clientX - rect.left;
+    points[draggingIndex].y = e.clientY - rect.top;
+    clampPoints();
+    redrawSource();
+}
+
+function onMouseUp() {
+    if (draggingIndex !== -1) forceWarp();
+    draggingIndex = -1;
+}
+
+function handleTouch(e) {
+    e.preventDefault();
+    const rect = source_canvas.getBoundingClientRect();
+    const touch = e.touches[0];
+    const mx = touch.clientX - rect.left;
+    const my = touch.clientY - rect.top;
+
+    if (e.type === 'touchstart') {
+        for (let i = 0; i < 4; i++) {
+            const dx = mx - points[i].x;
+            const dy = my - points[i].y;
+            if (dx*dx + dy*dy < 400) {
+                draggingIndex = i;
+                break;
+            }
+        }
+    } else if (e.type === 'touchmove' && draggingIndex !== -1) {
+        points[draggingIndex].x = mx;
+        points[draggingIndex].y = my;
+        clampPoints();
+        redrawSource();
+    }
+}
+
+function clampPoints() {
+    const w = source_canvas.width, h = source_canvas.height;
+    for (let p of points) {
+        p.x = Math.max(10, Math.min(w-10, p.x));
+        p.y = Math.max(10, Math.min(h-10, p.y));
+    }
+}
+
+function redrawSource() {
+    if (!capturedImage) return;
+    sourceCtx.drawImage(capturedImage, 0, 0, source_canvas.width, source_canvas.height);
+
+    sourceCtx.strokeStyle = '#0f0';
+    sourceCtx.lineWidth = 4;
+    sourceCtx.beginPath();
+    sourceCtx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < 4; i++) sourceCtx.lineTo(points[i].x, points[i].y);
+    sourceCtx.closePath();
+    sourceCtx.stroke();
+
+    sourceCtx.fillStyle = '#f00';
+    for (let p of points) {
+        sourceCtx.beginPath();
+        sourceCtx.arc(p.x, p.y, 11, 0, Math.PI*2);
+        sourceCtx.fill();
+        sourceCtx.strokeStyle = '#fff';
+        sourceCtx.lineWidth = 3;
+        sourceCtx.stroke();
+    }
+}
+
+// ====================== MAIN WARP ======================
+function forceWarp() {
+    if (!capturedImage) return;
+
+    let baseW = Math.round(capturedImage.width * outputScale);
+    let baseH = Math.round(baseW / fineAspectRatio);
+
+    result_canvas.width = baseW;
+    result_canvas.height = baseH;
+
+    resultCtx.clearRect(0, 0, baseW, baseH);
+
+    const srcCanvas = document.createElement('canvas');
+    srcCanvas.width = capturedImage.width;
+    srcCanvas.height = capturedImage.height;
+    srcCanvas.getContext('2d').drawImage(capturedImage, 0, 0);
+
+    const srcData = srcCanvas.getContext('2d').getImageData(0, 0, srcCanvas.width, srcCanvas.height).data;
+    const dstImageData = resultCtx.createImageData(baseW, baseH);
+    const dstData = dstImageData.data;
+
+    const scaleX = capturedImage.width / source_canvas.width;
+    const scaleY = capturedImage.height / source_canvas.height;
+    const srcPts = points.map(p => ({ x: p.x * scaleX, y: p.y * scaleY }));
+
+    for (let y = 0; y < baseH; y++) {
+        for (let x = 0; x < baseW; x++) {
+            const u = x / baseW;
+            const v = y / baseH;
+
+            const topX = srcPts[0].x + u * (srcPts[1].x - srcPts[0].x);
+            const botX = srcPts[3].x + u * (srcPts[2].x - srcPts[3].x);
+            const srcX = topX + v * (botX - topX);
+
+            const topY = srcPts[0].y + u * (srcPts[1].y - srcPts[0].y);
+            const botY = srcPts[3].y + u * (srcPts[2].y - srcPts[3].y);
+            const srcY = topY + v * (botY - topY);
+
+            const sx = Math.max(0, Math.min(srcCanvas.width-1, Math.round(srcX)));
+            const sy = Math.max(0, Math.min(srcCanvas.height-1, Math.round(srcY)));
+
+            const srcIdx = (sy * srcCanvas.width + sx) * 4;
+            const dstIdx = (y * baseW + x) * 4;
+
+            let r = srcData[srcIdx];
+            let g = srcData[srcIdx+1];
+            let b = srcData[srcIdx+2];
+
+            r = Math.min(255, Math.max(0, (r - 128) * (1 + contrast/100) + 128 + brightness));
+            g = Math.min(255, Math.max(0, (g - 128) * (1 + contrast/100) + 128 + brightness));
+            b = Math.min(255, Math.max(0, (b - 128) * (1 + contrast/100) + 128 + brightness));
+
+            dstData[dstIdx]   = r;
+            dstData[dstIdx+1] = g;
+            dstData[dstIdx+2] = b;
+            dstData[dstIdx+3] = 255;
+        }
+    }
+
+    resultCtx.putImageData(dstImageData, 0, 0);
+
+    if (applyBlur && document.getElementById('apply_blur').checked) {
+        resultCtx.filter = 'blur(1px)';
+        resultCtx.drawImage(result_canvas, 0, 0);
+        resultCtx.filter = 'none';
+    }
+
+    previewCtx.clearRect(0, 0, live_preview.width, live_preview.height);
+    previewCtx.drawImage(result_canvas, 0, 0, live_preview.width, live_preview.height);
+
+    resultCtx.fillStyle = '#ff0';
+    resultCtx.font = 'bold 18px sans-serif';
+    resultCtx.fillText(`Scale: ${outputScale.toFixed(2)}x | Aspect: ${fineAspectRatio.toFixed(3)} | Rot: ${pointRotation.toFixed(1)}°`, 30, 45);
+}
+
+// Import Image
+function importImage() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = e => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = ev => {
+            capturedImage = new Image();
+            capturedImage.src = ev.target.result;
+            capturedImage.onload = () => {
+                const aspect = capturedImage.width / capturedImage.height;
+                source_canvas.width = 800;
+                source_canvas.height = Math.round(800 / aspect);
+
+                result_canvas.width = capturedImage.width;
+                result_canvas.height = capturedImage.height;
+
+                redrawSource();
+                forceWarp();
+            };
+        };
+        reader.readAsDataURL(file);
+    };
+    input.click();
+}
+
+// Take Picture & Export
+function takePicture() {
+    if (!video_takepicture_div.srcObject) return alert("Camera not running");
+
+    const temp = document.createElement('canvas');
+    temp.width = video_takepicture_div.videoWidth;
+    temp.height = video_takepicture_div.videoHeight;
+    temp.getContext('2d').drawImage(video_takepicture_div, 0, 0);
+
+    capturedImage = new Image();
+    capturedImage.src = temp.toDataURL('image/png');
+
+    capturedImage.onload = () => {
+        const aspect = capturedImage.width / capturedImage.height;
+        source_canvas.width = 800;
+        source_canvas.height = Math.round(800 / aspect);
+
+        result_canvas.width = capturedImage.width;
+        result_canvas.height = capturedImage.height;
+
+        redrawSource();
+        forceWarp();
+    };
+}
+
+function exportWarped() {
+    const a = document.createElement('a');
+    a.download = 'paper_scan.png';
+    a.href = result_canvas.toDataURL('image/png');
+    a.click();
+}
+
+window.onload = initCanvases;
+</script>
+
+</body>
+</html>
