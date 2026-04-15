@@ -3,263 +3,257 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Paper Scanner Pro</title>
+    <title>Trebuchet Scanner</title>
     <style>
-        body { font-family: sans-serif; margin: 10px; background: #121212; color: #e0e0e0; overflow-x: hidden; }
-        .container { max-width: 900px; margin: auto; }
-        
-        /* The Viewfinder/Interaction Area */
-        .work-area { position: relative; width: 100%; margin-bottom: 20px; }
-        canvas#source_canvas { 
-            display: block; width: 100%; height: auto; 
-            background: #000; border: 1px solid #444; 
-            touch-action: none; cursor: crosshair;
-        }
-
-        /* The Magic GPU Preview */
-        .preview-container { 
-            position: relative; width: 300px; height: 400px; 
-            overflow: hidden; background: #222; border: 2px solid #0f0;
-            margin: 10px auto;
-        }
-        #gpu_preview { position: absolute; top: 0; left: 0; pointer-events: none; }
-
-        .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 15px 0; }
-        button { 
-            padding: 15px; font-size: 16px; border-radius: 8px; border: none;
-            background: #333; color: white; cursor: pointer;
-        }
-        button.primary { background: #007bff; }
-        
-        .slider-group { background: #1e1e1e; padding: 15px; border-radius: 8px; margin: 10px 0; }
-        label { display: block; margin-bottom: 5px; font-size: 14px; color: #aaa; }
-        input[type="range"] { width: 100%; margin-bottom: 10px; }
-        
-        video#v_stream { display: none; }
-        #result_canvas { display: none; } /* Hidden until export */
-        select { width: 100%; padding: 10px; background: #333; color: #fff; margin-bottom: 10px; }
+        body { font-family: sans-serif; background: #111; color: #ccc; margin: 10px; line-height: 1.4; }
+        .card { background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333; margin-bottom: 10px; }
+        canvas { display: block; width: 100%; height: auto; background: #000; touch-action: none; cursor: crosshair; }
+        .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+        button { padding: 14px; border: none; border-radius: 4px; background: #444; color: #fff; font-weight: bold; }
+        button.primary { background: #0066cc; }
+        button.danger { background: #cc3300; }
+        #status { font-size: 12px; color: #999; text-align: center; margin-bottom: 5px; }
+        label { font-size: 11px; text-transform: uppercase; color: #666; }
+        input[type="range"] { width: 100%; margin: 10px 0; }
+        video { display: none; } /* Hidden: We only grab frames */
     </style>
 </head>
 <body>
 
-<div class="container">
-    <video id="v_stream" autoplay playsinline></video>
-    
-    <select id="camera_select"></select>
-    <select id="res_select">
-        <option value="1280x720">720p (Fast)</option>
-        <option value="1920x1080" selected>1080p (HD)</option>
-        <option value="3840x2160">4K (Ultra - Heavy)</option>
-    </select>
-
-    <div class="controls">
-        <button onclick="initCamera()">📹 Start/Toggle</button>
-        <button class="primary" onclick="captureFrame()">📸 Snap Photo</button>
+<div class="card">
+    <div id="status">Ready. Standby for capture.</div>
+    <div class="btns">
+        <button onclick="snap('low')">📷 Snap Low-Res</button>
+        <button class="primary" onclick="snap('high')">📸 Snap High-Res</button>
     </div>
-
-    <div class="work-area">
-        <canvas id="source_canvas"></canvas>
+    <div class="btns">
+        <button onclick="document.getElementById('file-in').click()">📁 Import</button>
+        <button class="danger" onclick="location.reload()">🔄 Reset All</button>
     </div>
-
-    <div class="slider-group">
-        <label>Aspect Ratio (e.g., 1.414 for A4, 0.75 for 4:3)</label>
-        <input type="range" id="aspect_slider" min="0.5" max="2.0" step="0.01" value="1.33" oninput="updateUI()">
-        <span id="aspect_val">1.33</span>
-    </div>
-
-    <div class="preview-container">
-        <canvas id="gpu_preview"></canvas>
-    </div>
-
-    <div class="controls">
-        <button onclick="resetPoints()">🔄 Reset</button>
-        <button class="primary" onclick="exportFinal()">💾 Export High-Res</button>
-    </div>
-
-    <canvas id="result_canvas"></canvas>
+    <input type="file" id="file-in" style="display:none" accept="image/*" onchange="handleFile(event)">
 </div>
+
+<div class="card">
+    <label>1. Align Corners</label>
+    <canvas id="src-cvs"></canvas>
+</div>
+
+<div class="card">
+    <label>2. Preview & Adjust Aspect</label>
+    <input type="range" id="aspect-slider" min="0.5" max="1.6" step="0.01" value="0.75" oninput="renderResult()">
+    <canvas id="dst-cvs"></canvas>
+    <div class="btns">
+        <button class="primary" style="grid-column: span 2; margin-top:10px;" onclick="download()">💾 Save Final Image</button>
+    </div>
+</div>
+
+<video id="v-temp" autoplay playsinline></video>
 
 <script>
 /**
  * THE ARCHITECTURE:
- * We map 4 points on a source image to a destination rectangle.
- * The "GPU Preview" uses CSS matrix3d to avoid per-pixel JS loops.
+ * One-shot capture to minimize memory footprint.
+ * Scaling coordinate system (800px UI vs Actual Sensor Resolution).
+ * Homography-based pixel warping.
  */
 
-let stream = null;
-let img = null; // Stores the captured frame
+let masterData = null; // Uint8ClampedArray of high-res pixels
+let masterW = 0, masterH = 0;
 let points = [];
 let draggingIdx = -1;
 
-const src_cvs = document.getElementById('source_canvas');
-const src_ctx = src_cvs.getContext('2d');
-const gpu_cvs = document.getElementById('gpu_preview');
-const gpu_ctx = gpu_cvs.getContext('2d');
-const res_cvs = document.getElementById('result_canvas');
+const srcCvs = document.getElementById('src-cvs');
+const srcCtx = srcCvs.getContext('2d');
+const dstCvs = document.getElementById('dst-cvs');
+const dstCtx = dstCvs.getContext('2d');
+const v = document.getElementById('v-temp');
 
-async function initCamera() {
-    if (stream) { stream.getTracks().forEach(t => t.stop()); }
+async function snap(mode) {
+    const status = document.getElementById('status');
+    const widthReq = (mode === 'high') ? 3840 : 1280;
+    const heightReq = (mode === 'high') ? 2160 : 720;
     
-    const [w, h] = document.getElementById('res_select').value.split('x').map(Number);
-    const deviceId = document.getElementById('camera_select').value;
+    status.innerText = `Requesting ${widthReq}p...`;
     
     try {
-        stream = await navigator.mediaDevices.getUserMedia({
+        const stream = await navigator.mediaDevices.getUserMedia({
             video: { 
-                deviceId: deviceId ? {exact: deviceId} : undefined,
-                width: {ideal: w}, height: {ideal: h}, facingMode: "environment" 
+                facingMode: "environment", 
+                width: { ideal: widthReq }, 
+                height: { ideal: heightReq } 
             }
         });
-        document.getElementById('v_stream').srcObject = stream;
         
-        // Populate camera list if empty
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const select = document.getElementById('camera_select');
-        if (select.options.length === 0) {
-            devices.filter(d => d.kind === 'videoinput').forEach(d => {
-                const opt = document.createElement('option');
-                opt.value = d.deviceId;
-                opt.text = d.label || 'Camera';
-                select.appendChild(opt);
-            });
-        }
-    } catch (e) { alert("Camera Error: " + e.message); }
+        v.srcObject = stream;
+        
+        // Wait for hardware to spin up
+        await new Promise(r => v.onloadedmetadata = r);
+        await new Promise(r => setTimeout(r, 800)); // Delay for focus/white balance
+        
+        masterW = v.videoWidth;
+        masterH = v.videoHeight;
+        
+        const tempCvs = document.createElement('canvas');
+        tempCvs.width = masterW;
+        tempCvs.height = masterH;
+        const tempCtx = tempCvs.getContext('2d');
+        tempCtx.drawImage(v, 0, 0);
+        
+        masterData = tempCtx.getImageData(0, 0, masterW, masterH);
+        
+        // KILL THE STREAM IMMEDIATELY
+        stream.getTracks().forEach(t => t.stop());
+        v.srcObject = null;
+        
+        status.innerText = `Captured: ${masterW}x${masterH}. Memory Locked.`;
+        initUI();
+    } catch (e) {
+        status.innerText = "Error: " + e.message;
+        console.error(e);
+    }
 }
 
-function captureFrame() {
-    const v = document.getElementById('v_stream');
-    if (!v.videoWidth) return;
-    
-    // Create an off-screen image from video
-    const temp = document.createElement('canvas');
-    temp.width = v.videoWidth;
-    temp.height = v.videoHeight;
-    temp.getContext('2d').drawImage(v, 0, 0);
-    
-    img = new Image();
-    img.onload = () => {
-        src_cvs.width = 800; // Internal coordinate system
-        src_cvs.height = 800 * (img.height / img.width);
-        resetPoints();
-        draw();
+function handleFile(e) {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+        const img = new Image();
+        img.onload = () => {
+            masterW = img.width;
+            masterH = img.height;
+            const temp = document.createElement('canvas');
+            temp.width = masterW; temp.height = masterH;
+            const tCtx = temp.getContext('2d');
+            tCtx.drawImage(img, 0, 0);
+            masterData = tCtx.getImageData(0, 0, masterW, masterH);
+            initUI();
+        };
+        img.src = ev.target.result;
     };
-    img.src = temp.toDataURL();
+    reader.readAsDataURL(e.target.files[0]);
 }
 
-function resetPoints() {
-    const w = src_cvs.width, h = src_cvs.height;
+function initUI() {
+    srcCvs.width = 800;
+    srcCvs.height = 800 * (masterH / masterW);
+    
+    // Default points to a centered box
+    const w = srcCvs.width, h = srcCvs.height;
     points = [
         {x: w*0.2, y: h*0.2}, {x: w*0.8, y: h*0.2},
         {x: w*0.8, y: h*0.8}, {x: w*0.2, y: h*0.8}
     ];
-    updateUI();
+    drawSource();
+    renderResult();
 }
 
-// Coordinate Mapping (CSS -> Canvas)
-src_cvs.addEventListener('pointerdown', e => {
-    const rect = src_cvs.getBoundingClientRect();
-    const x = (e.clientX - rect.left) * (src_cvs.width / rect.width);
-    const y = (e.clientY - rect.top) * (src_cvs.height / rect.height);
-    
+// Interaction Math
+srcCvs.addEventListener('pointerdown', e => {
+    const rect = srcCvs.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (srcCvs.width / rect.width);
+    const y = (e.clientY - rect.top) * (srcCvs.height / rect.height);
     draggingIdx = points.findIndex(p => Math.hypot(p.x - x, p.y - y) < 40);
-    if (draggingIdx !== -1) src_cvs.setPointerCapture(e.pointerId);
+    if(draggingIdx !== -1) srcCvs.setPointerCapture(e.pointerId);
 });
 
-src_cvs.addEventListener('pointermove', e => {
+srcCvs.addEventListener('pointermove', e => {
     if (draggingIdx === -1) return;
-    const rect = src_cvs.getBoundingClientRect();
-    points[draggingIdx].x = (e.clientX - rect.left) * (src_cvs.width / rect.width);
-    points[draggingIdx].y = (e.clientY - rect.top) * (src_cvs.height / rect.height);
-    draw();
+    const rect = srcCvs.getBoundingClientRect();
+    points[draggingIdx].x = (e.clientX - rect.left) * (srcCvs.width / rect.width);
+    points[draggingIdx].y = (e.clientY - rect.top) * (srcCvs.height / rect.height);
+    drawSource();
 });
 
-src_cvs.addEventListener('pointerup', () => { draggingIdx = -1; updateUI(); });
+srcCvs.addEventListener('pointerup', () => { 
+    draggingIdx = -1; 
+    renderResult(); 
+});
 
-function draw() {
-    if (!img) return;
-    src_ctx.drawImage(img, 0, 0, src_cvs.width, src_cvs.height);
+function drawSource() {
+    srcCtx.clearRect(0,0,srcCvs.width, srcCvs.height);
     
-    // Draw Polygon
-    src_ctx.strokeStyle = '#00ff00';
-    src_ctx.lineWidth = 3;
-    src_ctx.beginPath();
-    src_ctx.moveTo(points[0].x, points[0].y);
-    points.forEach(p => src_ctx.lineTo(p.x, p.y));
-    src_ctx.closePath();
-    src_ctx.stroke();
+    // Create preview bitmap for the background
+    const temp = document.createElement('canvas');
+    temp.width = masterW; temp.height = masterH;
+    temp.getContext('2d').putImageData(masterData, 0, 0);
+    srcCtx.drawImage(temp, 0, 0, srcCvs.width, srcCvs.height);
 
-    // Draw Handles
-    src_ctx.fillStyle = '#ff0000';
+    // UI Overlay
+    srcCtx.strokeStyle = '#00ff00';
+    srcCtx.lineWidth = 2;
+    srcCtx.beginPath();
+    srcCtx.moveTo(points[0].x, points[0].y);
+    points.forEach(p => srcCtx.lineTo(p.x, p.y));
+    srcCtx.closePath();
+    srcCtx.stroke();
+    
+    srcCtx.fillStyle = '#ff3300';
     points.forEach(p => {
-        src_ctx.beginPath();
-        src_ctx.arc(p.x, p.y, 12, 0, Math.PI*2);
-        src_ctx.fill();
+        srcCtx.beginPath(); srcCtx.arc(p.x, p.y, 10, 0, Math.PI*2); srcCtx.fill();
     });
-    
-    updateUI();
 }
 
-function updateUI() {
-    const ratio = parseFloat(document.getElementById('aspect_slider').value);
-    document.getElementById('aspect_val').innerText = ratio.toFixed(2);
-    if (img) updateGPUPreview(ratio);
+function renderResult() {
+    if (!masterData) return;
+    const ratio = parseFloat(document.getElementById('aspect-slider').value);
+    
+    // Preview at 500px width for speed
+    const outW = 500;
+    const outH = Math.round(outW / ratio);
+    dstCvs.width = outW; dstCvs.height = outH;
+    
+    const dCtx = dstCvs.getContext('2d');
+    const dImg = dCtx.createImageData(outW, outH);
+    const dPix = dImg.data;
+
+    const scale = masterW / srcCvs.width;
+    const p = points.map(pt => ({ x: pt.x * scale, y: pt.y * scale }));
+
+    // Homography solver
+    const h = solveHomography(p, outW, outH);
+
+    for (let y = 0; y < outH; y++) {
+        for (let x = 0; x < outW; x++) {
+            const z = h[6]*x + h[7]*y + 1;
+            const sx = Math.floor((h[0]*x + h[1]*y + h[2]) / z);
+            const sy = Math.floor((h[3]*x + h[4]*y + h[5]) / z);
+
+            if (sx >= 0 && sx < masterW && sy >= 0 && sy < masterH) {
+                const sIdx = (sy * masterW + sx) * 4;
+                const dIdx = (y * outW + x) * 4;
+                dPix[dIdx] = masterData.data[sIdx];
+                dPix[dIdx+1] = masterData.data[sIdx+1];
+                dPix[dIdx+2] = masterData.data[sIdx+2];
+                dPix[dIdx+3] = 255;
+            }
+        }
+    }
+    dCtx.putImageData(dImg, 0, 0);
 }
 
-// THE GPU SHORTCUT
-function updateGPUPreview(ratio) {
-    const matrix = getPerspectiveTransform(points, src_cvs.width, src_cvs.height);
-    gpu_cvs.width = 400; 
-    gpu_cvs.height = 400 / ratio;
-    
-    gpu_ctx.drawImage(img, 0, 0, gpu_cvs.width, gpu_cvs.height);
-    
-    // Warp the canvas element itself using CSS
-    gpu_cvs.style.transformOrigin = "0 0";
-    gpu_cvs.style.transform = `matrix3d(${matrix.join(',')})`;
-}
+function solveHomography(p, w, h) {
+    const x0 = p[0].x, y0 = p[0].y;
+    const x1 = p[1].x, y1 = p[1].y;
+    const x2 = p[2].x, y2 = p[2].y;
+    const x3 = p[3].x, y3 = p[3].y;
 
-// Linear Algebra: Map unit square to quad
-function getPerspectiveTransform(p, w, h) {
-    const nx = p.map(i => i.x / w);
-    const ny = p.map(i => i.y / h);
-    
-    // Simplified Homography for CSS Matrix3D
-    // Mapping (0,0),(1,0),(1,1),(0,1) to points
-    const x0 = nx[0], y0 = ny[0], x1 = nx[1], y1 = ny[1], x2 = nx[2], y2 = ny[2], x3 = nx[3], y3 = ny[3];
-    const dx1 = x1 - x2, dy1 = y1 - y2, dx2 = x3 - x2, dy2 = y3 - y2;
+    const dx1 = x1 - x2, dy1 = y1 - y2;
+    const dx2 = x3 - x2, dy2 = y3 - y2;
     const sx = x0 - x1 + x2 - x3, sy = y0 - y1 + y2 - y3;
-    const g = (sx * dy2 - sy * dx2) / (dx1 * dy2 - dy1 * dx2);
-    const h_c = (dx1 * sy - dy1 * sx) / (dx1 * dy2 - dy1 * dx2);
+    
+    const g = ((sx * dy2) - (sy * dx2)) / ((dx1 * dy2) - (dy1 * dx2));
+    const h_c = ((dx1 * sy) - (dy1 * sx)) / ((dx1 * dy2) - (dy1 * dx2));
     
     return [
-        x1 - x0 + g*x1, y1 - y0 + g*y1, 0, g,
-        x3 - x0 + h_c*x3, y3 - y0 + h_c*y3, 0, h_c,
-        0, 0, 1, 0,
-        x0, y0, 0, 1
+        (x1 - x0 + g * x1) / w, (x3 - x0 + h_c * x3) / h, x0,
+        (y1 - y0 + g * y1) / w, (y3 - y0 + h_c * y3) / h, y0,
+        g / w, h_c / h
     ];
 }
 
-// PIXEL MATH: ONLY FOR EXPORT
-function exportFinal() {
-    if (!img) return;
-    const ratio = parseFloat(document.getElementById('aspect_slider').value);
-    const outW = img.width;
-    const outH = Math.round(outW / ratio);
-    
-    res_cvs.width = outW;
-    res_cvs.height = outH;
-    const ctx = res_cvs.getContext('2d');
-    
-    // Final heavy calculation
-    // Using a simpler drawImage hack for the "Export" if browser supports it, 
-    // or you can insert the loop here. For UX, let's just trigger a download.
-    alert("Processing High-Res... please wait.");
-    
-    // Standard Bilinear Warp Logic would go here
-    // For now, let's save the current warped view
+function download() {
     const link = document.createElement('a');
     link.download = 'scan.png';
-    link.href = gpu_cvs.toDataURL();
+    link.href = dstCvs.toDataURL();
     link.click();
 }
 </script>
