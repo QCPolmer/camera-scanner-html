@@ -25,25 +25,20 @@
             max-width: 100%; 
         }
         button { 
-            padding: 12px 18px; 
-            margin: 5px; 
-            font-size: 16px; 
+            padding: 14px 20px; 
+            margin: 6px; 
+            font-size: 17px; 
             background: #333; 
             color: #fff; 
             border: 1px solid #666; 
+            border-radius: 6px;
         }
         .note { 
             background: #333; 
             color: #ffdd00; 
-            padding: 10px; 
+            padding: 12px; 
             border-radius: 6px; 
-            margin-bottom: 12px; 
-        }
-        .preview-container {
-            display: flex;
-            gap: 15px;
-            margin: 15px 0;
-            flex-wrap: wrap;
+            margin-bottom: 15px; 
         }
         .output-controls {
             background: #222; 
@@ -59,8 +54,9 @@
 <body>
 
 <div class="note">
-    <strong>Note:</strong> Tap "Toggle Camera" twice if the camera list doesn't populate.<br>
-    On mobile: Use landscape. Turn on your phone's flashlight manually if needed.
+    <strong>Note:</strong> On mobile, use landscape mode.<br>
+    Tap "Toggle Camera" twice if the list doesn't show all cameras.<br>
+    Turn on your phone's flashlight manually if needed.
 </div>
 
 <div class="controls">
@@ -83,26 +79,14 @@
 <video id="video_takepicture_div" autoplay playsinline></video>
 
 <h3>Source — Drag the 4 red points</h3>
-
-<div class="preview-container">
-    <div>
-        <canvas id="source_canvas" width="800" height="600"></canvas>
-    </div>
-    <div>
-        <label>
-            <input type="checkbox" id="show_live_preview" checked onchange="toggleLivePreview()">
-            Show Live Preview
-        </label>
-        <canvas id="live_preview" width="400" height="300"></canvas>
-    </div>
-</div>
+<canvas id="source_canvas" width="800" height="600"></canvas>
 
 <div class="output-controls">
     <strong>Output Controls</strong><br><br>
     
     <div>
         <label>Rotate Points:</label>
-        <input type="range" id="point_rotate_slider" min="0" max="360" value="0" step="0.05" 
+        <input type="range" id="point_rotate_slider" min="0" max="360" value="0" step="0.1" 
                oninput="rotatePoints(this.value)">
         <span id="point_rotate_value">0°</span>
     </div>
@@ -168,7 +152,7 @@ let isCameraOn = false;
 let capturedImage = null;
 let currentDeviceId = null;
 
-let sourceCtx, resultCtx, previewCtx;
+let sourceCtx, resultCtx;
 let points = [];
 let draggingIndex = -1;
 let pointRotation = 0;
@@ -177,7 +161,6 @@ let outputScale = 1.0;
 let brightness = 0;
 let contrast = 0;
 let applyBlur = false;
-let showLivePreview = true;
 
 const myGlobalThis = window;
 Array.from(document.querySelectorAll('*')).forEach(el => {
@@ -187,9 +170,8 @@ Array.from(document.querySelectorAll('*')).forEach(el => {
 function initCanvases() {
     sourceCtx = source_canvas.getContext('2d');
     resultCtx = result_canvas.getContext('2d');
-    previewCtx = live_preview.getContext('2d');
 
-    // Pointer events - best for mobile + desktop
+    // Pointer events - most reliable for mobile dragging
     source_canvas.addEventListener('pointerdown', onPointerDown);
     source_canvas.addEventListener('pointermove', onPointerMove);
     source_canvas.addEventListener('pointerup', onPointerUp);
@@ -213,7 +195,6 @@ function resetPoints(initial = false) {
     brightness = 0;
     contrast = 0;
     applyBlur = false;
-    showLivePreview = true;
 
     document.getElementById('point_rotate_slider').value = 0;
     document.getElementById('point_rotate_value').textContent = '0°';
@@ -227,7 +208,6 @@ function resetPoints(initial = false) {
     document.getElementById('fine_aspect_input').value = '1.33';
     document.getElementById('aspect_select').value = '1.333';
     document.getElementById('apply_blur').checked = false;
-    document.getElementById('show_live_preview').checked = true;
 
     if (!initial && capturedImage) {
         redrawSource();
@@ -235,7 +215,7 @@ function resetPoints(initial = false) {
     }
 }
 
-// ====================== POINTER EVENTS (best for mobile dragging) ======================
+// Pointer events for dragging (best cross-platform)
 function onPointerDown(e) {
     const rect = source_canvas.getBoundingClientRect();
     const mx = e.clientX - rect.left;
@@ -244,7 +224,7 @@ function onPointerDown(e) {
     for (let i = 0; i < 4; i++) {
         const dx = mx - points[i].x;
         const dy = my - points[i].y;
-        if (dx*dx + dy*dy < 900) {   // generous hit area for fingers
+        if (dx*dx + dy*dy < 1000) {   // generous for fingers
             draggingIndex = i;
             source_canvas.setPointerCapture(e.pointerId);
             return;
@@ -263,14 +243,14 @@ function onPointerMove(e) {
     redrawSource();
 }
 
-function onPointerUp(e) {
+function onPointerUp() {
     if (draggingIndex !== -1) {
         renderFull();
     }
     draggingIndex = -1;
 }
 
-// Rotate (fine control)
+// Rotate
 function rotatePoints(degrees) {
     pointRotation = parseFloat(degrees);
     document.getElementById('point_rotate_value').textContent = pointRotation.toFixed(1) + '°';
@@ -298,19 +278,16 @@ function rotatePoints(degrees) {
 function updateOutputScale(val) {
     outputScale = parseFloat(val);
     document.getElementById('output_scale_value').textContent = outputScale.toFixed(2);
-    renderFull();
 }
 
 function updateBrightness(val) {
     brightness = parseFloat(val);
     document.getElementById('bright_value').textContent = brightness;
-    renderFull();
 }
 
 function updateContrast(val) {
     contrast = parseFloat(val);
     document.getElementById('contrast_value').textContent = contrast;
-    renderFull();
 }
 
 function updateAspectFromDropdown() {
@@ -320,7 +297,6 @@ function updateAspectFromDropdown() {
         document.getElementById('fine_aspect_slider').value = val;
         document.getElementById('fine_aspect_input').value = val.toFixed(3);
     }
-    renderFull();
 }
 
 function updateFineAspect(val) {
@@ -328,14 +304,9 @@ function updateFineAspect(val) {
     document.getElementById('fine_aspect_slider').value = fineAspectRatio;
     document.getElementById('fine_aspect_input').value = fineAspectRatio.toFixed(3);
     document.getElementById('aspect_select').value = '0';
-    renderFull();
 }
 
-function toggleLivePreview() {
-    showLivePreview = document.getElementById('show_live_preview').checked;
-    renderFull();
-}
-
+// Clamp & Redraw
 function clampPoints() {
     const w = source_canvas.width, h = source_canvas.height;
     for (let p of points) {
@@ -367,7 +338,7 @@ function redrawSource() {
     }
 }
 
-// ====================== RENDER FULL (only when needed) ======================
+// Render Full (only when button pressed)
 function renderFull() {
     if (!capturedImage) return;
 
@@ -433,18 +404,9 @@ function renderFull() {
         resultCtx.drawImage(result_canvas, 0, 0);
         resultCtx.filter = 'none';
     }
-
-    // Live preview
-    if (showLivePreview) {
-        previewCtx.clearRect(0, 0, live_preview.width, live_preview.height);
-        previewCtx.drawImage(result_canvas, 0, 0, live_preview.width, live_preview.height);
-        live_preview.style.display = 'block';
-    } else {
-        live_preview.style.display = 'none';
-    }
 }
 
-// Import, Take Picture, Export
+// Import & Take Picture
 function importImage() {
     const input = document.createElement('input');
     input.type = 'file';
