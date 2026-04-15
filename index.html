@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- 
-  Paper Scanner - Mobile Drag Fix
+  Paper Scanner
   Built with help from Grok (xAI)
   Feel free to use, modify, and distribute under MIT License.
 -->
@@ -11,20 +11,61 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
     <title>Paper Scanner</title>
     <style>
-        body { font-family: sans-serif; margin: 10px; background: #1a1a1a; color: #eee; }
-        video, canvas { background: #111; border: 2px solid #555; margin: 8px 0; display: block; max-width: 100%; }
-        button { padding: 14px 20px; margin: 6px; font-size: 17px; background: #333; color: #fff; border: 1px solid #666; border-radius: 6px; }
-        .note { background: #333; color: #ffdd00; padding: 12px; border-radius: 6px; margin-bottom: 15px; }
+        body { 
+            font-family: sans-serif; 
+            margin: 10px; 
+            background: #1a1a1a; 
+            color: #eee; 
+        }
+        video, canvas { 
+            background: #111; 
+            border: 2px solid #555; 
+            margin: 8px 0; 
+            display: block; 
+            max-width: 100%; 
+            touch-action: none;   /* critical for mobile dragging */
+        }
+        button { 
+            padding: 14px 20px; 
+            margin: 6px; 
+            font-size: 17px; 
+            background: #333; 
+            color: #fff; 
+            border: 1px solid #666; 
+            border-radius: 6px;
+        }
+        .note { 
+            background: #333; 
+            color: #ffdd00; 
+            padding: 12px; 
+            border-radius: 6px; 
+            margin-bottom: 15px; 
+        }
+        .main-area {
+            display: flex;
+            gap: 15px;
+            margin: 15px 0;
+            flex-wrap: wrap;
+        }
+        .output-controls {
+            background: #222; 
+            padding: 15px; 
+            border-radius: 8px; 
+            margin: 15px 0;
+            color: #ddd;
+        }
+        label { display: inline-block; width: 160px; }
+        input[type="range"] { width: 320px; }
     </style>
 </head>
 <body>
 
 <div class="note">
-    <strong>Note:</strong> Use landscape on mobile.<br>
-    Tap "Toggle Camera" twice if the list doesn't populate.
+    <strong>Note:</strong> On mobile use landscape mode.<br>
+    Tap "Toggle Camera" twice if the camera list doesn't populate.
 </div>
 
-<div>
+<div class="controls">
     <button onclick="toggleCamera()">📹 Toggle Camera</button>
     <button onclick="takePicture()">📸 Take Picture</button>
     <button onclick="importImage()">📁 Import Image</button>
@@ -44,20 +85,84 @@
 <video id="video_takepicture_div" autoplay playsinline></video>
 
 <h3>Source — Drag the 4 red points</h3>
-<canvas id="source_canvas" width="800" height="600"></canvas>
+
+<div class="main-area">
+    <div>
+        <canvas id="source_canvas" width="800" height="600"></canvas>
+    </div>
+    <div>
+        <h4>Live Preview</h4>
+        <canvas id="live_preview" width="380" height="280"></canvas>
+    </div>
+</div>
+
+<div class="output-controls">
+    <strong>Output Controls</strong><br><br>
+    
+    <div>
+        <label>Rotate Points:</label>
+        <input type="range" id="point_rotate_slider" min="0" max="360" value="0" step="0.1" 
+               oninput="rotatePoints(this.value)">
+        <span id="point_rotate_value">0°</span>
+    </div>
+
+    <div>
+        <label>Output Scale: <span id="output_scale_value">1.0</span>x</label>
+        <input type="range" id="output_scale_slider" min="0.3" max="1.5" value="1.0" step="0.01" 
+               oninput="updateOutputScale(this.value)">
+    </div>
+
+    <div style="margin-top:10px">
+        <label>Brightness: <span id="bright_value">0</span></label>
+        <input type="range" id="brightness_slider" min="-50" max="50" value="0" step="1" 
+               oninput="updateBrightness(this.value)">
+    </div>
+
+    <div>
+        <label>Contrast: <span id="contrast_value">0</span></label>
+        <input type="range" id="contrast_slider" min="-50" max="50" value="0" step="1" 
+               oninput="updateContrast(this.value)">
+    </div>
+
+    <div style="margin-top:15px">
+        <label><input type="checkbox" id="lock_aspect" onchange="renderFull()"> Lock Aspect Ratio</label>
+    </div>
+
+    <div>
+        <label>Common Size:</label>
+        <select id="aspect_select" onchange="updateAspectFromDropdown()">
+            <option value="0">Free</option>
+            <option value="1.333" selected>4:3</option>
+            <option value="1.5">3:2</option>
+            <option value="1">1:1</option>
+            <option value="1.667">3x5 Card</option>
+            <option value="0.707">A4 Portrait</option>
+            <option value="0.772">US Letter Portrait</option>
+        </select>
+    </div>
+
+    <div style="margin-top:12px">
+        <label>Fine Aspect: <span id="fine_aspect_value">1.33</span></label>
+        <input type="range" id="fine_aspect_slider" min="0.5" max="3.0" value="1.33" step="0.01" 
+               oninput="updateFineAspect(this.value)">
+        <input type="number" id="fine_aspect_input" value="1.33" step="0.01" 
+               style="width:80px; background:#333; color:#fff; border:1px solid #666;" 
+               onchange="updateFineAspect(this.value)">
+    </div>
+</div>
 
 <h3>Final Warped Result</h3>
 <canvas id="result_canvas"></canvas>
 
 <script>
-// Built with help from Grok (xAI)
+// Built with help from Grok (xAI) — feel free to use and modify freely.
 
 let currentStream = null;
 let isCameraOn = false;
 let capturedImage = null;
 let currentDeviceId = null;
 
-let sourceCtx, resultCtx;
+let sourceCtx, resultCtx, previewCtx;
 let points = [];
 let draggingIndex = -1;
 let pointRotation = 0;
@@ -74,8 +179,9 @@ Array.from(document.querySelectorAll('*')).forEach(el => {
 function initCanvases() {
     sourceCtx = source_canvas.getContext('2d');
     resultCtx = result_canvas.getContext('2d');
+    previewCtx = live_preview.getContext('2d');
 
-    // Dual listeners
+    // Dual listeners for maximum mobile compatibility
     source_canvas.addEventListener('pointerdown', onPointerDown);
     source_canvas.addEventListener('pointermove', onPointerMove);
     source_canvas.addEventListener('pointerup', onPointerUp);
@@ -103,7 +209,7 @@ function resetPoints(initial = false) {
     brightness = 0;
     contrast = 0;
 
-    // Safe checks
+    // Safe element checks
     const els = ['point_rotate_slider','point_rotate_value','output_scale_slider','output_scale_value',
                  'brightness_slider','bright_value','contrast_slider','contrast_value',
                  'fine_aspect_slider','fine_aspect_input','aspect_select'];
@@ -111,7 +217,7 @@ function resetPoints(initial = false) {
         const el = document.getElementById(id);
         if (el) {
             if (id.includes('slider') || id.includes('input')) el.value = id.includes('aspect') ? 1.333 : 0;
-            if (id.includes('value')) el.textContent = '0°';
+            if (id.includes('value')) el.textContent = id.includes('rotate') ? '0°' : '0';
         }
     });
 
@@ -160,14 +266,11 @@ function handleStart(clientX, clientY) {
     const mx = clientX - rect.left;
     const my = clientY - rect.top;
 
-    console.log(`Start at: ${mx.toFixed(0)}, ${my.toFixed(0)}`);
-
     for (let i = 0; i < 4; i++) {
         const dx = mx - points[i].x;
         const dy = my - points[i].y;
-        if (dx*dx + dy*dy < 1400) {   // even larger hit area for fingers
+        if (dx*dx + dy*dy < 1600) {   // very generous for fingers
             draggingIndex = i;
-            console.log(`Dragging point ${i}`);
             return;
         }
     }
@@ -272,60 +375,12 @@ function renderFull() {
     }
 
     resultCtx.putImageData(dstImageData, 0, 0);
-}
 
-// Camera
-async function toggleCamera() {
-    if (isCameraOn) {
-        if (currentStream) currentStream.getTracks().forEach(t => t.stop());
-        video_takepicture_div.srcObject = null;
-        isCameraOn = false;
-        return;
+    // Live preview
+    if (document.getElementById('show_live_preview') && document.getElementById('show_live_preview').checked) {
+        previewCtx.clearRect(0, 0, live_preview.width, live_preview.height);
+        previewCtx.drawImage(result_canvas, 0, 0, live_preview.width, live_preview.height);
     }
-
-    try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoDevices = devices.filter(d => d.kind === 'videoinput');
-
-        camera_list_div.innerHTML = '';
-        videoDevices.forEach((dev, i) => {
-            const opt = document.createElement('option');
-            opt.value = dev.deviceId;
-            opt.textContent = dev.label || `Camera ${i+1}`;
-            camera_list_div.appendChild(opt);
-        });
-
-        if (videoDevices.length > 0) {
-            currentDeviceId = videoDevices[0].deviceId;
-            await startStream(currentDeviceId);
-            camera_list_div.value = currentDeviceId;
-        }
-    } catch (err) {
-        console.error(err);
-        alert("Camera error: " + err.message);
-    }
-}
-
-async function startStream(deviceId) {
-    if (currentStream) currentStream.getTracks().forEach(t => t.stop());
-
-    const res = resolution_select_div.value.split('x').map(Number);
-    const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-            deviceId: deviceId ? { exact: deviceId } : undefined,
-            width: { ideal: res[0] },
-            height: { ideal: res[1] }
-        }
-    });
-
-    currentStream = stream;
-    video_takepicture_div.srcObject = stream;
-    currentDeviceId = deviceId || stream.getVideoTracks()[0].getSettings().deviceId;
-    isCameraOn = true;
-}
-
-function switchCamera(newDeviceId) {
-    if (isCameraOn && newDeviceId) startStream(newDeviceId);
 }
 
 // Simple controls
@@ -434,6 +489,29 @@ function exportWarped() {
     a.download = 'paper_scan.png';
     a.href = result_canvas.toDataURL('image/png');
     a.click();
+}
+
+function redrawSource() {
+    if (!capturedImage) return;
+    sourceCtx.drawImage(capturedImage, 0, 0, source_canvas.width, source_canvas.height);
+
+    sourceCtx.strokeStyle = '#0f0';
+    sourceCtx.lineWidth = 4;
+    sourceCtx.beginPath();
+    sourceCtx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < 4; i++) sourceCtx.lineTo(points[i].x, points[i].y);
+    sourceCtx.closePath();
+    sourceCtx.stroke();
+
+    sourceCtx.fillStyle = '#f00';
+    for (let p of points) {
+        sourceCtx.beginPath();
+        sourceCtx.arc(p.x, p.y, 16, 0, Math.PI*2);
+        sourceCtx.fill();
+        sourceCtx.strokeStyle = '#fff';
+        sourceCtx.lineWidth = 3;
+        sourceCtx.stroke();
+    }
 }
 
 window.onload = initCanvases;
