@@ -3,212 +3,208 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Trebuchet Scanner</title>
+    <title>Precision Scanner Pro</title>
     <style>
-        body { font-family: sans-serif; background: #111; color: #ccc; margin: 10px; line-height: 1.4; }
-        .card { background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333; margin-bottom: 10px; }
-        canvas { display: block; width: 100%; height: auto; background: #000; touch-action: none; cursor: crosshair; }
-        .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
-        button { padding: 14px; border: none; border-radius: 4px; background: #444; color: #fff; font-weight: bold; }
-        button.primary { background: #0066cc; }
-        button.danger { background: #cc3300; }
-        #status { font-size: 12px; color: #999; text-align: center; margin-bottom: 5px; }
-        label { font-size: 11px; text-transform: uppercase; color: #666; }
-        input[type="range"] { width: 100%; margin: 10px 0; }
-        video { display: none; } /* Hidden: We only grab frames */
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #000; color: #fff; margin: 10px; }
+        .card { background: #1c1c1e; padding: 15px; border-radius: 12px; margin-bottom: 12px; border: 1px solid #333; }
+        canvas { display: block; width: 100%; height: auto; background: #000; touch-action: none; border-radius: 8px; }
+        .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+        button { padding: 14px; border: none; border-radius: 8px; background: #3a3a3c; color: #fff; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        button:active { background: #636366; }
+        button.primary { background: #0a84ff; }
+        button.accent { background: #30d158; }
+        
+        .status-box { font-size: 13px; color: #ffd60a; margin-bottom: 10px; padding: 5px; text-align: center; border-radius: 4px; background: rgba(255, 214, 10, 0.1); }
+        .instructions { font-size: 12px; color: #8e8e93; margin-bottom: 15px; border-left: 2px solid #0a84ff; padding-left: 10px; }
+        
+        select, input[type="range"] { width: 100%; background: #2c2c2e; color: #fff; padding: 10px; border: 1px solid #3a3a3c; border-radius: 8px; margin: 8px 0; }
+        label { font-size: 11px; color: #8e8e93; text-transform: uppercase; letter-spacing: 0.5px; }
+        video { display: none; }
     </style>
 </head>
 <body>
 
 <div class="card">
-    <div id="status">Ready. Standby for capture.</div>
+    <div class="instructions">
+        💡 <b>Workflow:</b> Select camera → Use <b>Tiny Test</b> to align dots → Click <b>Snap High-Res</b> once happy → Save.
+    </div>
+    <div id="status" class="status-box">Ready.</div>
+    
+    <label>Hardware Selection</label>
+    <select id="cam-select" onchange="initCameraList()"><option>Loading cameras...</option></select>
+    
+    <label>Capture Target</label>
+    <select id="res-target">
+        <option value="1280x720">720p (Safe)</option>
+        <option value="1920x1080">1080p (HD)</option>
+        <option value="3840x2160" selected>4K (Ultra)</option>
+    </select>
+
     <div class="btns">
-        <button onclick="snap('low')">📷 Snap Low-Res</button>
+        <button onclick="snap('tiny')">📷 Tiny Test</button>
         <button class="primary" onclick="snap('high')">📸 Snap High-Res</button>
     </div>
-    <div class="btns">
-        <button onclick="document.getElementById('file-in').click()">📁 Import</button>
-        <button class="danger" onclick="location.reload()">🔄 Reset All</button>
-    </div>
-    <input type="file" id="file-in" style="display:none" accept="image/*" onchange="handleFile(event)">
+    <input type="file" id="file-in" style="display:none" onchange="handleFile(event)">
 </div>
 
 <div class="card">
-    <label>1. Align Corners</label>
+    <label>1. Align Source</label>
     <canvas id="src-cvs"></canvas>
+    <button onclick="document.getElementById('file-in').click()" style="width:100%; margin-top:8px; font-size:12px;">📁 Import Existing Image</button>
 </div>
 
 <div class="card">
-    <label>2. Preview & Adjust Aspect</label>
-    <input type="range" id="aspect-slider" min="0.5" max="1.6" step="0.01" value="0.75" oninput="renderResult()">
-    <canvas id="dst-cvs"></canvas>
+    <label>2. Output Options</label>
     <div class="btns">
-        <button class="primary" style="grid-column: span 2; margin-top:10px;" onclick="download()">💾 Save Final Image</button>
+        <button onclick="rotate(-90)">↺ Rotate Left</button>
+        <button onclick="rotate(90)">↻ Rotate Right</button>
     </div>
+    
+    <label>Aspect Ratio Presets</label>
+    <div class="btns" style="grid-template-columns: 1fr 1fr 1fr;">
+        <button onclick="setAspect(1.414)" style="font-size:11px;">A4</button>
+        <button onclick="setAspect(1.29)" style="font-size:11px;">Letter</button>
+        <button onclick="setAspect(1.58)" style="font-size:11px;">Card</button>
+    </div>
+    
+    <input type="range" id="aspect-slider" min="0.5" max="2.5" step="0.01" value="0.75" oninput="renderResult()">
+    
+    <canvas id="dst-cvs"></canvas>
+    <button class="accent" style="width:100%; margin-top:12px;" onclick="download()">💾 Save Scanned Document</button>
 </div>
 
 <video id="v-temp" autoplay playsinline></video>
 
 <script>
-/**
- * THE ARCHITECTURE:
- * One-shot capture to minimize memory footprint.
- * Scaling coordinate system (800px UI vs Actual Sensor Resolution).
- * Homography-based pixel warping.
- */
+let masterData = null, masterW = 0, masterH = 0;
+let points = [], draggingIdx = -1, rotation = 0;
 
-let masterData = null; // Uint8ClampedArray of high-res pixels
-let masterW = 0, masterH = 0;
-let points = [];
-let draggingIdx = -1;
-
-const srcCvs = document.getElementById('src-cvs');
-const srcCtx = srcCvs.getContext('2d');
-const dstCvs = document.getElementById('dst-cvs');
-const dstCtx = dstCvs.getContext('2d');
+const srcCvs = document.getElementById('src-cvs'), srcCtx = srcCvs.getContext('2d');
+const dstCvs = document.getElementById('dst-cvs'), dstCtx = dstCvs.getContext('2d');
 const v = document.getElementById('v-temp');
+const status = document.getElementById('status');
+
+// Initialize Camera List
+async function initCameraList() {
+    try {
+        await navigator.mediaDevices.getUserMedia({video: true}); // Trigger permission
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const cams = devices.filter(d => d.kind === 'videoinput');
+        const sel = document.getElementById('cam-select');
+        sel.innerHTML = cams.map(c => `<option value="${c.deviceId}">${c.label || 'Camera '+c.deviceId.slice(0,4)}</option>`).join('');
+    } catch (e) { status.innerText = "Cam Permission Denied."; }
+}
+initCameraList();
 
 async function snap(mode) {
-    const status = document.getElementById('status');
-    const widthReq = (mode === 'high') ? 3840 : 1280;
-    const heightReq = (mode === 'high') ? 2160 : 720;
+    const res = mode === 'tiny' ? [640, 480] : document.getElementById('res-target').value.split('x').map(Number);
+    const camId = document.getElementById('cam-select').value;
     
-    status.innerText = `Requesting ${widthReq}p...`;
+    status.innerText = `Firing ${mode} capture...`;
     
     try {
         const stream = await navigator.mediaDevices.getUserMedia({
-            video: { 
-                facingMode: "environment", 
-                width: { ideal: widthReq }, 
-                height: { ideal: heightReq } 
-            }
+            video: { deviceId: camId ? {exact: camId} : undefined, width: {ideal: res[0]}, height: {ideal: res[1]} }
         });
-        
         v.srcObject = stream;
-        
-        // Wait for hardware to spin up
         await new Promise(r => v.onloadedmetadata = r);
-        await new Promise(r => setTimeout(r, 800)); // Delay for focus/white balance
+        await new Promise(r => setTimeout(r, 700)); // Focus/Light adjust
         
-        masterW = v.videoWidth;
-        masterH = v.videoHeight;
+        masterW = v.videoWidth; masterH = v.videoHeight;
+        const temp = document.createElement('canvas');
+        temp.width = masterW; temp.height = masterH;
+        const tCtx = temp.getContext('2d');
+        tCtx.drawImage(v, 0, 0);
+        masterData = tCtx.getImageData(0, 0, masterW, masterH);
         
-        const tempCvs = document.createElement('canvas');
-        tempCvs.width = masterW;
-        tempCvs.height = masterH;
-        const tempCtx = tempCvs.getContext('2d');
-        tempCtx.drawImage(v, 0, 0);
-        
-        masterData = tempCtx.getImageData(0, 0, masterW, masterH);
-        
-        // KILL THE STREAM IMMEDIATELY
         stream.getTracks().forEach(t => t.stop());
-        v.srcObject = null;
-        
-        status.innerText = `Captured: ${masterW}x${masterH}. Memory Locked.`;
+        status.innerText = `Snap Success: ${masterW}x${masterH}`;
         initUI();
-    } catch (e) {
-        status.innerText = "Error: " + e.message;
-        console.error(e);
-    }
+    } catch (e) { status.innerText = "Capture Failed: " + e.message; }
 }
 
 function handleFile(e) {
     const reader = new FileReader();
     reader.onload = (ev) => {
-        const img = new Image();
-        img.onload = () => {
-            masterW = img.width;
-            masterH = img.height;
-            const temp = document.createElement('canvas');
-            temp.width = masterW; temp.height = masterH;
-            const tCtx = temp.getContext('2d');
-            tCtx.drawImage(img, 0, 0);
-            masterData = tCtx.getImageData(0, 0, masterW, masterH);
+        const i = new Image();
+        i.onload = () => {
+            masterW = i.width; masterH = i.height;
+            const t = document.createElement('canvas');
+            t.width = masterW; t.height = masterH;
+            const tx = t.getContext('2d');
+            tx.drawImage(i, 0, 0);
+            masterData = tx.getImageData(0, 0, masterW, masterH);
             initUI();
         };
-        img.src = ev.target.result;
+        i.src = ev.target.result;
     };
     reader.readAsDataURL(e.target.files[0]);
 }
 
 function initUI() {
-    srcCvs.width = 800;
-    srcCvs.height = 800 * (masterH / masterW);
-    
-    // Default points to a centered box
-    const w = srcCvs.width, h = srcCvs.height;
-    points = [
-        {x: w*0.2, y: h*0.2}, {x: w*0.8, y: h*0.2},
-        {x: w*0.8, y: h*0.8}, {x: w*0.2, y: h*0.8}
-    ];
+    srcCvs.width = 800; srcCvs.height = 800 * (masterH / masterW);
+    points = [{x:80,y:80}, {x:720,y:80}, {x:720,y:srcCvs.height-80}, {x:80,y:srcCvs.height-80}];
     drawSource();
     renderResult();
 }
 
-// Interaction Math
+function setAspect(val) {
+    document.getElementById('aspect-slider').value = val;
+    renderResult();
+}
+
+function rotate(deg) {
+    rotation = (rotation + deg) % 360;
+    renderResult();
+}
+
+// Interaction
 srcCvs.addEventListener('pointerdown', e => {
-    const rect = srcCvs.getBoundingClientRect();
-    const x = (e.clientX - rect.left) * (srcCvs.width / rect.width);
-    const y = (e.clientY - rect.top) * (srcCvs.height / rect.height);
+    const r = srcCvs.getBoundingClientRect();
+    const x = (e.clientX - r.left) * (srcCvs.width / r.width);
+    const y = (e.clientY - r.top) * (srcCvs.height / r.height);
     draggingIdx = points.findIndex(p => Math.hypot(p.x - x, p.y - y) < 40);
     if(draggingIdx !== -1) srcCvs.setPointerCapture(e.pointerId);
 });
 
 srcCvs.addEventListener('pointermove', e => {
     if (draggingIdx === -1) return;
-    const rect = srcCvs.getBoundingClientRect();
-    points[draggingIdx].x = (e.clientX - rect.left) * (srcCvs.width / rect.width);
-    points[draggingIdx].y = (e.clientY - rect.top) * (srcCvs.height / rect.height);
+    const r = srcCvs.getBoundingClientRect();
+    points[draggingIdx].x = (e.clientX - r.left) * (srcCvs.width / r.width);
+    points[draggingIdx].y = (e.clientY - r.top) * (srcCvs.height / r.height);
     drawSource();
 });
 
-srcCvs.addEventListener('pointerup', () => { 
-    draggingIdx = -1; 
-    renderResult(); 
-});
+srcCvs.addEventListener('pointerup', () => { draggingIdx = -1; renderResult(); });
 
 function drawSource() {
     srcCtx.clearRect(0,0,srcCvs.width, srcCvs.height);
-    
-    // Create preview bitmap for the background
-    const temp = document.createElement('canvas');
-    temp.width = masterW; temp.height = masterH;
-    temp.getContext('2d').putImageData(masterData, 0, 0);
-    srcCtx.drawImage(temp, 0, 0, srcCvs.width, srcCvs.height);
-
-    // UI Overlay
-    srcCtx.strokeStyle = '#00ff00';
-    srcCtx.lineWidth = 2;
-    srcCtx.beginPath();
-    srcCtx.moveTo(points[0].x, points[0].y);
+    const t = document.createElement('canvas');
+    t.width = masterW; t.height = masterH;
+    t.getContext('2d').putImageData(masterData, 0, 0);
+    srcCtx.drawImage(t, 0, 0, srcCvs.width, srcCvs.height);
+    srcCtx.strokeStyle = '#0a84ff'; srcCtx.lineWidth = 3;
+    srcCtx.beginPath(); srcCtx.moveTo(points[0].x, points[0].y);
     points.forEach(p => srcCtx.lineTo(p.x, p.y));
-    srcCtx.closePath();
-    srcCtx.stroke();
-    
-    srcCtx.fillStyle = '#ff3300';
-    points.forEach(p => {
-        srcCtx.beginPath(); srcCtx.arc(p.x, p.y, 10, 0, Math.PI*2); srcCtx.fill();
-    });
+    srcCtx.closePath(); srcCtx.stroke();
+    srcCtx.fillStyle = '#ff3b30';
+    points.forEach(p => { srcCtx.beginPath(); srcCtx.arc(p.x, p.y, 12, 0, Math.PI*2); srcCtx.fill(); });
 }
 
 function renderResult() {
     if (!masterData) return;
     const ratio = parseFloat(document.getElementById('aspect-slider').value);
+    const outW = 600; const outH = Math.round(outW / ratio);
     
-    // Preview at 500px width for speed
-    const outW = 500;
-    const outH = Math.round(outW / ratio);
-    dstCvs.width = outW; dstCvs.height = outH;
-    
-    const dCtx = dstCvs.getContext('2d');
-    const dImg = dCtx.createImageData(outW, outH);
-    const dPix = dImg.data;
+    // We create a temporary non-rotated canvas first
+    const tCvs = document.createElement('canvas');
+    tCvs.width = outW; tCvs.height = outH;
+    const tCtx = tCvs.getContext('2d');
+    const tImg = tCtx.createImageData(outW, outH);
+    const dPix = tImg.data;
 
     const scale = masterW / srcCvs.width;
     const p = points.map(pt => ({ x: pt.x * scale, y: pt.y * scale }));
-
-    // Homography solver
     const h = solveHomography(p, outW, outH);
 
     for (let y = 0; y < outH; y++) {
@@ -216,7 +212,6 @@ function renderResult() {
             const z = h[6]*x + h[7]*y + 1;
             const sx = Math.floor((h[0]*x + h[1]*y + h[2]) / z);
             const sy = Math.floor((h[3]*x + h[4]*y + h[5]) / z);
-
             if (sx >= 0 && sx < masterW && sy >= 0 && sy < masterH) {
                 const sIdx = (sy * masterW + sx) * 4;
                 const dIdx = (y * outW + x) * 4;
@@ -227,33 +222,36 @@ function renderResult() {
             }
         }
     }
-    dCtx.putImageData(dImg, 0, 0);
+    tCtx.putImageData(tImg, 0, 0);
+
+    // Now handle rotation for the display canvas
+    if (rotation % 180 === 0) {
+        dstCvs.width = outW; dstCvs.height = outH;
+    } else {
+        dstCvs.width = outH; dstCvs.height = outW;
+    }
+    
+    dstCtx.clearRect(0,0,dstCvs.width, dstCvs.height);
+    dstCtx.save();
+    dstCtx.translate(dstCvs.width/2, dstCvs.height/2);
+    dstCtx.rotate(rotation * Math.PI / 180);
+    dstCtx.drawImage(tCvs, -outW/2, -outH/2);
+    dstCtx.restore();
 }
 
 function solveHomography(p, w, h) {
-    const x0 = p[0].x, y0 = p[0].y;
-    const x1 = p[1].x, y1 = p[1].y;
-    const x2 = p[2].x, y2 = p[2].y;
-    const x3 = p[3].x, y3 = p[3].y;
-
-    const dx1 = x1 - x2, dy1 = y1 - y2;
-    const dx2 = x3 - x2, dy2 = y3 - y2;
+    const x0 = p[0].x, y0 = p[0].y, x1 = p[1].x, y1 = p[1].y, x2 = p[2].x, y2 = p[2].y, x3 = p[3].x, y3 = p[3].y;
+    const dx1 = x1 - x2, dy1 = y1 - y2, dx2 = x3 - x2, dy2 = y3 - y2;
     const sx = x0 - x1 + x2 - x3, sy = y0 - y1 + y2 - y3;
-    
     const g = ((sx * dy2) - (sy * dx2)) / ((dx1 * dy2) - (dy1 * dx2));
     const h_c = ((dx1 * sy) - (dy1 * sx)) / ((dx1 * dy2) - (dy1 * dx2));
-    
-    return [
-        (x1 - x0 + g * x1) / w, (x3 - x0 + h_c * x3) / h, x0,
-        (y1 - y0 + g * y1) / w, (y3 - y0 + h_c * y3) / h, y0,
-        g / w, h_c / h
-    ];
+    return [(x1-x0+g*x1)/w, (x3-x0+h_c*x3)/h, x0, (y1-y0+g*y1)/w, (y3-y0+h_c*y3)/h, y0, g/w, h_c/h];
 }
 
 function download() {
     const link = document.createElement('a');
-    link.download = 'scan.png';
-    link.href = dstCvs.toDataURL();
+    link.download = `scan_${Date.now()}.png`;
+    link.href = dstCvs.toDataURL('image/png', 1.0);
     link.click();
 }
 </script>
