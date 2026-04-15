@@ -13,7 +13,7 @@
     <style>
         body { 
             font-family: sans-serif; 
-            margin: 10px; 
+            margin: 8px; 
             background: #1a1a1a; 
             color: #eee; 
         }
@@ -40,6 +40,12 @@
             border-radius: 6px; 
             margin-bottom: 15px; 
         }
+        .main-area {
+            display: flex;
+            gap: 12px;
+            margin: 15px 0;
+            flex-wrap: wrap;
+        }
         .output-controls {
             background: #222; 
             padding: 15px; 
@@ -48,23 +54,22 @@
             color: #ddd;
         }
         label { display: inline-block; width: 160px; }
-        input[type="range"] { width: 320px; }
+        input[type="range"] { width: 300px; }
     </style>
 </head>
 <body>
 
 <div class="note">
-    <strong>Note:</strong> On mobile, use landscape mode.<br>
-    Tap "Toggle Camera" twice if the list doesn't show all cameras.<br>
-    Turn on your phone's flashlight manually if needed.
+    <strong>Note:</strong> Use landscape mode on mobile.<br>
+    Tap "Toggle Camera" twice if cameras don't appear.
 </div>
 
 <div class="controls">
     <button onclick="toggleCamera()">📹 Toggle Camera</button>
     <button onclick="takePicture()">📸 Take Picture</button>
     <button onclick="importImage()">📁 Import Image</button>
-    <button onclick="renderFull()">🔄 Render Full Output</button>
-    <button onclick="resetPoints()">🔄 Reset All</button>
+    <button onclick="renderFull()">🔄 Render Full</button>
+    <button onclick="resetPoints()">🔄 Reset</button>
     <button onclick="exportWarped()">💾 Export</button>
 </div>
 
@@ -79,7 +84,16 @@
 <video id="video_takepicture_div" autoplay playsinline></video>
 
 <h3>Source — Drag the 4 red points</h3>
-<canvas id="source_canvas" width="800" height="600"></canvas>
+
+<div class="main-area">
+    <div>
+        <canvas id="source_canvas" width="800" height="600"></canvas>
+    </div>
+    <div>
+        <h4>Live Preview</h4>
+        <canvas id="live_preview" width="380" height="280"></canvas>
+    </div>
+</div>
 
 <div class="output-controls">
     <strong>Output Controls</strong><br><br>
@@ -117,10 +131,9 @@
         <label>Common Size:</label>
         <select id="aspect_select" onchange="updateAspectFromDropdown()">
             <option value="0">Free</option>
-            <option value="1.5">3:2</option>
             <option value="1.333" selected>4:3</option>
+            <option value="1.5">3:2</option>
             <option value="1">1:1</option>
-            <option value="1.586">Credit Card</option>
             <option value="1.667">3x5 Card</option>
             <option value="0.707">A4 Portrait</option>
             <option value="0.772">US Letter Portrait</option>
@@ -135,24 +148,20 @@
                style="width:80px; background:#333; color:#fff; border:1px solid #666;" 
                onchange="updateFineAspect(this.value)">
     </div>
-
-    <div style="margin-top:12px">
-        <label><input type="checkbox" id="apply_blur" onchange="renderFull()"> Light Blur</label>
-    </div>
 </div>
 
 <h3>Final Warped Result</h3>
 <canvas id="result_canvas"></canvas>
 
 <script>
-// Built with help from Grok (xAI) — feel free to use and modify freely.
+// Built with help from Grok (xAI)
 
 let currentStream = null;
 let isCameraOn = false;
 let capturedImage = null;
 let currentDeviceId = null;
 
-let sourceCtx, resultCtx;
+let sourceCtx, resultCtx, previewCtx;
 let points = [];
 let draggingIndex = -1;
 let pointRotation = 0;
@@ -160,7 +169,6 @@ let fineAspectRatio = 1.333;
 let outputScale = 1.0;
 let brightness = 0;
 let contrast = 0;
-let applyBlur = false;
 
 const myGlobalThis = window;
 Array.from(document.querySelectorAll('*')).forEach(el => {
@@ -170,12 +178,17 @@ Array.from(document.querySelectorAll('*')).forEach(el => {
 function initCanvases() {
     sourceCtx = source_canvas.getContext('2d');
     resultCtx = result_canvas.getContext('2d');
+    previewCtx = live_preview.getContext('2d');
 
-    // Pointer events - most reliable for mobile dragging
+    // Dual event listeners for maximum compatibility
     source_canvas.addEventListener('pointerdown', onPointerDown);
     source_canvas.addEventListener('pointermove', onPointerMove);
     source_canvas.addEventListener('pointerup', onPointerUp);
     source_canvas.addEventListener('pointerleave', onPointerUp);
+
+    source_canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+    source_canvas.addEventListener('touchmove', onTouchMove, { passive: false });
+    source_canvas.addEventListener('touchend', onTouchEnd);
 
     resetPoints(true);
 }
@@ -194,7 +207,6 @@ function resetPoints(initial = false) {
     outputScale = 1.0;
     brightness = 0;
     contrast = 0;
-    applyBlur = false;
 
     document.getElementById('point_rotate_slider').value = 0;
     document.getElementById('point_rotate_value').textContent = '0°';
@@ -207,7 +219,6 @@ function resetPoints(initial = false) {
     document.getElementById('fine_aspect_slider').value = 1.333;
     document.getElementById('fine_aspect_input').value = '1.33';
     document.getElementById('aspect_select').value = '1.333';
-    document.getElementById('apply_blur').checked = false;
 
     if (!initial && capturedImage) {
         redrawSource();
@@ -215,98 +226,63 @@ function resetPoints(initial = false) {
     }
 }
 
-// Pointer events for dragging (best cross-platform)
+// ====================== POINTER + TOUCH ======================
 function onPointerDown(e) {
+    handleStart(e.clientX, e.clientY, e);
+}
+
+function onPointerMove(e) {
+    if (draggingIndex === -1) return;
+    handleMove(e.clientX, e.clientY);
+}
+
+function onPointerUp() {
+    if (draggingIndex !== -1) renderFull();
+    draggingIndex = -1;
+}
+
+function onTouchStart(e) {
+    e.preventDefault();
+    const touch = e.touches[0];
+    handleStart(touch.clientX, touch.clientY);
+}
+
+function onTouchMove(e) {
+    e.preventDefault();
+    if (draggingIndex === -1) return;
+    const touch = e.touches[0];
+    handleMove(touch.clientX, touch.clientY);
+}
+
+function onTouchEnd() {
+    if (draggingIndex !== -1) renderFull();
+    draggingIndex = -1;
+}
+
+function handleStart(clientX, clientY) {
     const rect = source_canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
+    const mx = clientX - rect.left;
+    const my = clientY - rect.top;
 
     for (let i = 0; i < 4; i++) {
         const dx = mx - points[i].x;
         const dy = my - points[i].y;
-        if (dx*dx + dy*dy < 1000) {   // generous for fingers
+        if (dx*dx + dy*dy < 1200) {   // very generous for fingers
             draggingIndex = i;
-            source_canvas.setPointerCapture(e.pointerId);
             return;
         }
     }
 }
 
-function onPointerMove(e) {
-    if (draggingIndex === -1) return;
-
+function handleMove(clientX, clientY) {
     const rect = source_canvas.getBoundingClientRect();
-    points[draggingIndex].x = e.clientX - rect.left;
-    points[draggingIndex].y = e.clientY - rect.top;
+    points[draggingIndex].x = clientX - rect.left;
+    points[draggingIndex].y = clientY - rect.top;
 
     clampPoints();
     redrawSource();
 }
 
-function onPointerUp() {
-    if (draggingIndex !== -1) {
-        renderFull();
-    }
-    draggingIndex = -1;
-}
-
-// Rotate
-function rotatePoints(degrees) {
-    pointRotation = parseFloat(degrees);
-    document.getElementById('point_rotate_value').textContent = pointRotation.toFixed(1) + '°';
-
-    if (!capturedImage) return;
-
-    const cx = (points[0].x + points[1].x + points[2].x + points[3].x) / 4;
-    const cy = (points[0].y + points[1].y + points[2].y + points[3].y) / 4;
-    const rad = pointRotation * Math.PI / 180;
-
-    const original = JSON.parse(JSON.stringify(points));
-
-    for (let i = 0; i < 4; i++) {
-        const dx = original[i].x - cx;
-        const dy = original[i].y - cy;
-        points[i].x = cx + dx * Math.cos(rad) - dy * Math.sin(rad);
-        points[i].y = cy + dx * Math.sin(rad) + dy * Math.cos(rad);
-    }
-
-    redrawSource();
-    renderFull();
-}
-
-// Output controls
-function updateOutputScale(val) {
-    outputScale = parseFloat(val);
-    document.getElementById('output_scale_value').textContent = outputScale.toFixed(2);
-}
-
-function updateBrightness(val) {
-    brightness = parseFloat(val);
-    document.getElementById('bright_value').textContent = brightness;
-}
-
-function updateContrast(val) {
-    contrast = parseFloat(val);
-    document.getElementById('contrast_value').textContent = contrast;
-}
-
-function updateAspectFromDropdown() {
-    const val = parseFloat(aspect_select.value);
-    if (val > 0) {
-        fineAspectRatio = val;
-        document.getElementById('fine_aspect_slider').value = val;
-        document.getElementById('fine_aspect_input').value = val.toFixed(3);
-    }
-}
-
-function updateFineAspect(val) {
-    fineAspectRatio = parseFloat(val);
-    document.getElementById('fine_aspect_slider').value = fineAspectRatio;
-    document.getElementById('fine_aspect_input').value = fineAspectRatio.toFixed(3);
-    document.getElementById('aspect_select').value = '0';
-}
-
-// Clamp & Redraw
 function clampPoints() {
     const w = source_canvas.width, h = source_canvas.height;
     for (let p of points) {
@@ -330,7 +306,7 @@ function redrawSource() {
     sourceCtx.fillStyle = '#f00';
     for (let p of points) {
         sourceCtx.beginPath();
-        sourceCtx.arc(p.x, p.y, 14, 0, Math.PI*2);
+        sourceCtx.arc(p.x, p.y, 15, 0, Math.PI*2);
         sourceCtx.fill();
         sourceCtx.strokeStyle = '#fff';
         sourceCtx.lineWidth = 3;
@@ -338,7 +314,7 @@ function redrawSource() {
     }
 }
 
-// Render Full (only when button pressed)
+// ====================== RENDER FULL ======================
 function renderFull() {
     if (!capturedImage) return;
 
@@ -404,9 +380,44 @@ function renderFull() {
         resultCtx.drawImage(result_canvas, 0, 0);
         resultCtx.filter = 'none';
     }
+
+    // Live preview
+    if (document.getElementById('show_live_preview').checked) {
+        previewCtx.clearRect(0, 0, live_preview.width, live_preview.height);
+        previewCtx.drawImage(result_canvas, 0, 0, live_preview.width, live_preview.height);
+    }
 }
 
-// Import & Take Picture
+// Simple controls
+function updateOutputScale(val) {
+    outputScale = parseFloat(val);
+    document.getElementById('output_scale_value').textContent = outputScale.toFixed(2);
+}
+
+function updateBrightness(val) {
+    brightness = parseFloat(val);
+    document.getElementById('bright_value').textContent = brightness;
+}
+
+function updateContrast(val) {
+    contrast = parseFloat(val);
+    document.getElementById('contrast_value').textContent = contrast;
+}
+
+function updateAspectFromDropdown() {
+    const val = parseFloat(aspect_select.value);
+    if (val > 0) fineAspectRatio = val;
+    renderFull();
+}
+
+function updateFineAspect(val) {
+    fineAspectRatio = parseFloat(val);
+    document.getElementById('fine_aspect_slider').value = fineAspectRatio;
+    document.getElementById('fine_aspect_input').value = fineAspectRatio.toFixed(3);
+    document.getElementById('aspect_select').value = '0';
+    renderFull();
+}
+
 function importImage() {
     const input = document.createElement('input');
     input.type = 'file';
