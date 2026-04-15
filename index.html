@@ -46,22 +46,13 @@
             margin: 15px 0;
             flex-wrap: wrap;
         }
-        .output-controls {
-            background: #222; 
-            padding: 15px; 
-            border-radius: 8px; 
-            margin: 15px 0;
-            color: #ddd;
-        }
-        label { display: inline-block; width: 160px; }
-        input[type="range"] { width: 320px; }
     </style>
 </head>
 <body>
 
 <div class="note">
     <strong>Note:</strong> On mobile use landscape mode.<br>
-    Tap "Toggle Camera" twice if the camera list doesn't show all devices.
+    Tap "Toggle Camera" twice if cameras don't appear.
 </div>
 
 <div class="controls">
@@ -139,22 +130,13 @@
             <option value="0.772">US Letter Portrait</option>
         </select>
     </div>
-
-    <div style="margin-top:12px">
-        <label>Fine Aspect: <span id="fine_aspect_value">1.33</span></label>
-        <input type="range" id="fine_aspect_slider" min="0.5" max="3.0" value="1.33" step="0.01" 
-               oninput="updateFineAspect(this.value)">
-        <input type="number" id="fine_aspect_input" value="1.33" step="0.01" 
-               style="width:80px; background:#333; color:#fff; border:1px solid #666;" 
-               onchange="updateFineAspect(this.value)">
-    </div>
 </div>
 
 <h3>Final Warped Result</h3>
 <canvas id="result_canvas"></canvas>
 
 <script>
-// Built with help from Grok (xAI) — feel free to use and modify freely.
+// Built with help from Grok (xAI)
 
 let currentStream = null;
 let isCameraOn = false;
@@ -180,7 +162,7 @@ function initCanvases() {
     resultCtx = result_canvas.getContext('2d');
     previewCtx = live_preview.getContext('2d');
 
-    // Dual listeners for mobile + desktop
+    // Dual event system
     source_canvas.addEventListener('pointerdown', onPointerDown);
     source_canvas.addEventListener('pointermove', onPointerMove);
     source_canvas.addEventListener('pointerup', onPointerUp);
@@ -208,17 +190,18 @@ function resetPoints(initial = false) {
     brightness = 0;
     contrast = 0;
 
-    document.getElementById('point_rotate_slider').value = 0;
-    document.getElementById('point_rotate_value').textContent = '0°';
-    document.getElementById('output_scale_slider').value = 1.0;
-    document.getElementById('output_scale_value').textContent = '1.0';
-    document.getElementById('brightness_slider').value = 0;
-    document.getElementById('bright_value').textContent = '0';
-    document.getElementById('contrast_slider').value = 0;
-    document.getElementById('contrast_value').textContent = '0';
-    document.getElementById('fine_aspect_slider').value = 1.333;
-    document.getElementById('fine_aspect_input').value = '1.33';
-    document.getElementById('aspect_select').value = '1.333';
+    // Safe element checks
+    if (document.getElementById('point_rotate_slider')) document.getElementById('point_rotate_slider').value = 0;
+    if (document.getElementById('point_rotate_value')) document.getElementById('point_rotate_value').textContent = '0°';
+    if (document.getElementById('output_scale_slider')) document.getElementById('output_scale_slider').value = 1.0;
+    if (document.getElementById('output_scale_value')) document.getElementById('output_scale_value').textContent = '1.0';
+    if (document.getElementById('brightness_slider')) document.getElementById('brightness_slider').value = 0;
+    if (document.getElementById('bright_value')) document.getElementById('bright_value').textContent = '0';
+    if (document.getElementById('contrast_slider')) document.getElementById('contrast_slider').value = 0;
+    if (document.getElementById('contrast_value')) document.getElementById('contrast_value').textContent = '0';
+    if (document.getElementById('fine_aspect_slider')) document.getElementById('fine_aspect_slider').value = 1.333;
+    if (document.getElementById('fine_aspect_input')) document.getElementById('fine_aspect_input').value = '1.33';
+    if (document.getElementById('aspect_select')) document.getElementById('aspect_select').value = '1.333';
 
     if (!initial && capturedImage) {
         redrawSource();
@@ -318,7 +301,6 @@ function redrawSource() {
     }
 }
 
-// Render Full (only when button pressed)
 function renderFull() {
     if (!capturedImage) return;
 
@@ -379,67 +361,14 @@ function renderFull() {
 
     resultCtx.putImageData(dstImageData, 0, 0);
 
-    if (document.getElementById('show_live_preview').checked) {
+    // Live preview
+    if (document.getElementById('show_live_preview') && document.getElementById('show_live_preview').checked) {
         previewCtx.clearRect(0, 0, live_preview.width, live_preview.height);
         previewCtx.drawImage(result_canvas, 0, 0, live_preview.width, live_preview.height);
     }
 }
 
-// Camera functions
-async function toggleCamera() {
-    if (isCameraOn) {
-        if (currentStream) currentStream.getTracks().forEach(t => t.stop());
-        video_takepicture_div.srcObject = null;
-        isCameraOn = false;
-        return;
-    }
-
-    try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoDevices = devices.filter(d => d.kind === 'videoinput');
-
-        camera_list_div.innerHTML = '';
-        videoDevices.forEach((dev, i) => {
-            const opt = document.createElement('option');
-            opt.value = dev.deviceId;
-            opt.textContent = dev.label || `Camera ${i+1}`;
-            camera_list_div.appendChild(opt);
-        });
-
-        if (videoDevices.length > 0) {
-            currentDeviceId = videoDevices[0].deviceId;
-            await startStream(currentDeviceId);
-            camera_list_div.value = currentDeviceId;
-        }
-    } catch (err) {
-        console.error(err);
-        alert("Camera error: " + err.message);
-    }
-}
-
-async function startStream(deviceId) {
-    if (currentStream) currentStream.getTracks().forEach(t => t.stop());
-
-    const res = resolution_select_div.value.split('x').map(Number);
-    const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-            deviceId: deviceId ? { exact: deviceId } : undefined,
-            width: { ideal: res[0] },
-            height: { ideal: res[1] }
-        }
-    });
-
-    currentStream = stream;
-    video_takepicture_div.srcObject = stream;
-    currentDeviceId = deviceId || stream.getVideoTracks()[0].getSettings().deviceId;
-    isCameraOn = true;
-}
-
-function switchCamera(newDeviceId) {
-    if (isCameraOn && newDeviceId) startStream(newDeviceId);
-}
-
-// Other controls
+// Simple controls
 function updateOutputScale(val) {
     outputScale = parseFloat(val);
     document.getElementById('output_scale_value').textContent = outputScale.toFixed(2);
