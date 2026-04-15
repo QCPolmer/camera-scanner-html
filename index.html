@@ -244,18 +244,25 @@ function resetPoints(initial = false) {
     }
 }
 
-// Pointer events
 function onPointerDown(e) {
-    // Capture the pointer to ensure events keep firing even if finger slides off element
     source_canvas.setPointerCapture(e.pointerId); 
     const rect = source_canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
+    
+    // THE FIX: Calculate the scale difference between CSS size and internal canvas size
+    const scaleX = source_canvas.width / rect.width;
+    const scaleY = source_canvas.height / rect.height;
+
+    // Apply the scale to our pointer coordinates
+    const mx = (e.clientX - rect.left) * scaleX;
+    const my = (e.clientY - rect.top) * scaleY;
 
     for (let i = 0; i < 4; i++) {
         const dx = mx - points[i].x;
         const dy = my - points[i].y;
-        if (dx*dx + dy*dy < 1600) { 
+        
+        // I also bumped the hit radius from 1600 (40px) to 2500 (50px) 
+        // to make it a little more forgiving for "fat-fingering" on mobile.
+        if (dx*dx + dy*dy < 2500) { 
             draggingIndex = i;
             return;
         }
@@ -265,13 +272,17 @@ function onPointerDown(e) {
 function onPointerMove(e) {
     if (draggingIndex === -1) return;
     const rect = source_canvas.getBoundingClientRect();
-    points[draggingIndex].x = e.clientX - rect.left;
-    points[draggingIndex].y = e.clientY - rect.top;
+    
+    const scaleX = source_canvas.width / rect.width;
+    const scaleY = source_canvas.height / rect.height;
+
+    // Apply the scale when moving the point
+    points[draggingIndex].x = (e.clientX - rect.left) * scaleX;
+    points[draggingIndex].y = (e.clientY - rect.top) * scaleY;
 
     clampPoints();
     redrawSource();
 }
-
 function onPointerUp(e) {
     if (draggingIndex !== -1) {
         source_canvas.releasePointerCapture(e.pointerId);
