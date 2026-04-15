@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- 
-  Paper Scanner - Rollback + Touch Fix
+  Paper Scanner
   Built with help from Grok (xAI)
   Feel free to use, modify, and distribute under MIT License.
 -->
@@ -53,13 +53,15 @@
             margin: 15px 0;
             color: #ddd;
         }
+        label { display: inline-block; width: 160px; }
+        input[type="range"] { width: 320px; }
     </style>
 </head>
 <body>
 
 <div class="note">
-    <strong>Note:</strong> Tap "Toggle Camera" twice if the list doesn't populate.<br>
-    Use landscape on mobile. Turn on phone flashlight manually.
+    <strong>Note:</strong> On mobile use landscape mode.<br>
+    Tap "Toggle Camera" twice if the camera list doesn't show all devices.
 </div>
 
 <div class="controls">
@@ -137,6 +139,15 @@
             <option value="0.772">US Letter Portrait</option>
         </select>
     </div>
+
+    <div style="margin-top:12px">
+        <label>Fine Aspect: <span id="fine_aspect_value">1.33</span></label>
+        <input type="range" id="fine_aspect_slider" min="0.5" max="3.0" value="1.33" step="0.01" 
+               oninput="updateFineAspect(this.value)">
+        <input type="number" id="fine_aspect_input" value="1.33" step="0.01" 
+               style="width:80px; background:#333; color:#fff; border:1px solid #666;" 
+               onchange="updateFineAspect(this.value)">
+    </div>
 </div>
 
 <h3>Final Warped Result</h3>
@@ -169,7 +180,7 @@ function initCanvases() {
     resultCtx = result_canvas.getContext('2d');
     previewCtx = live_preview.getContext('2d');
 
-    // Dual listeners: pointer + touch
+    // Dual listeners for mobile + desktop
     source_canvas.addEventListener('pointerdown', onPointerDown);
     source_canvas.addEventListener('pointermove', onPointerMove);
     source_canvas.addEventListener('pointerup', onPointerUp);
@@ -254,18 +265,17 @@ function handleStart(clientX, clientY) {
     const mx = clientX - rect.left;
     const my = clientY - rect.top;
 
-    console.log(`Touch/Click at: ${mx.toFixed(0)}, ${my.toFixed(0)}`);
+    console.log(`Start at: ${mx.toFixed(0)}, ${my.toFixed(0)}`);
 
     for (let i = 0; i < 4; i++) {
         const dx = mx - points[i].x;
         const dy = my - points[i].y;
         if (dx*dx + dy*dy < 1200) {
             draggingIndex = i;
-            console.log(`Started dragging point ${i}`);
+            console.log(`Dragging point ${i}`);
             return;
         }
     }
-    console.log("No point hit");
 }
 
 function handleMove(clientX, clientY) {
@@ -369,20 +379,67 @@ function renderFull() {
 
     resultCtx.putImageData(dstImageData, 0, 0);
 
-    if (applyBlur && document.getElementById('apply_blur').checked) {
-        resultCtx.filter = 'blur(1px)';
-        resultCtx.drawImage(result_canvas, 0, 0);
-        resultCtx.filter = 'none';
-    }
-
-    // Live preview
     if (document.getElementById('show_live_preview').checked) {
         previewCtx.clearRect(0, 0, live_preview.width, live_preview.height);
         previewCtx.drawImage(result_canvas, 0, 0, live_preview.width, live_preview.height);
     }
 }
 
-// Simple helper functions
+// Camera functions
+async function toggleCamera() {
+    if (isCameraOn) {
+        if (currentStream) currentStream.getTracks().forEach(t => t.stop());
+        video_takepicture_div.srcObject = null;
+        isCameraOn = false;
+        return;
+    }
+
+    try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(d => d.kind === 'videoinput');
+
+        camera_list_div.innerHTML = '';
+        videoDevices.forEach((dev, i) => {
+            const opt = document.createElement('option');
+            opt.value = dev.deviceId;
+            opt.textContent = dev.label || `Camera ${i+1}`;
+            camera_list_div.appendChild(opt);
+        });
+
+        if (videoDevices.length > 0) {
+            currentDeviceId = videoDevices[0].deviceId;
+            await startStream(currentDeviceId);
+            camera_list_div.value = currentDeviceId;
+        }
+    } catch (err) {
+        console.error(err);
+        alert("Camera error: " + err.message);
+    }
+}
+
+async function startStream(deviceId) {
+    if (currentStream) currentStream.getTracks().forEach(t => t.stop());
+
+    const res = resolution_select_div.value.split('x').map(Number);
+    const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+            deviceId: deviceId ? { exact: deviceId } : undefined,
+            width: { ideal: res[0] },
+            height: { ideal: res[1] }
+        }
+    });
+
+    currentStream = stream;
+    video_takepicture_div.srcObject = stream;
+    currentDeviceId = deviceId || stream.getVideoTracks()[0].getSettings().deviceId;
+    isCameraOn = true;
+}
+
+function switchCamera(newDeviceId) {
+    if (isCameraOn && newDeviceId) startStream(newDeviceId);
+}
+
+// Other controls
 function updateOutputScale(val) {
     outputScale = parseFloat(val);
     document.getElementById('output_scale_value').textContent = outputScale.toFixed(2);
