@@ -3,124 +3,162 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Precision Scanner Pro</title>
+    <title>Scanner Pro: Master Edition</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #000; color: #fff; margin: 10px; }
+        body { font-family: -apple-system, system-ui, sans-serif; background: #000; color: #fff; margin: 10px; }
         .card { background: #1c1c1e; padding: 15px; border-radius: 12px; margin-bottom: 12px; border: 1px solid #333; }
         canvas { display: block; width: 100%; height: auto; background: #000; touch-action: none; border-radius: 8px; }
         .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
-        button { padding: 14px; border: none; border-radius: 8px; background: #3a3a3c; color: #fff; font-weight: bold; cursor: pointer; transition: 0.2s; }
-        button:active { background: #636366; }
+        button { padding: 14px; border: none; border-radius: 8px; background: #3a3a3c; color: #fff; font-weight: bold; cursor: pointer; }
+        button:active { background: #555; }
         button.primary { background: #0a84ff; }
         button.accent { background: #30d158; }
+        button.setup { background: #5856d6; }
         
-        .status-box { font-size: 13px; color: #ffd60a; margin-bottom: 10px; padding: 5px; text-align: center; border-radius: 4px; background: rgba(255, 214, 10, 0.1); }
-        .instructions { font-size: 12px; color: #8e8e93; margin-bottom: 15px; border-left: 2px solid #0a84ff; padding-left: 10px; }
+        .status-box { font-size: 13px; color: #ffd60a; margin-bottom: 10px; padding: 8px; text-align: center; border-radius: 4px; background: rgba(255, 214, 10, 0.1); border: 1px solid rgba(255, 214, 10, 0.3); }
+        select, input[type="range"] { width: 100%; background: #2c2c2e; color: #fff; padding: 10px; border: 1px solid #3a3a3c; border-radius: 8px; margin: 8px 0; font-size: 16px; }
+        label { font-size: 11px; color: #8e8e93; text-transform: uppercase; }
         
-        select, input[type="range"] { width: 100%; background: #2c2c2e; color: #fff; padding: 10px; border: 1px solid #3a3a3c; border-radius: 8px; margin: 8px 0; }
-        label { font-size: 11px; color: #8e8e93; text-transform: uppercase; letter-spacing: 0.5px; }
-        video { display: none; }
+        /* Viewfinder styling */
+        #v-temp { width: 100%; border-radius: 8px; margin-bottom: 10px; display: none; background: #000; }
     </style>
 </head>
 <body>
 
 <div class="card">
-    <div class="instructions">
-        💡 <b>Workflow:</b> Select camera → Use <b>Tiny Test</b> to align dots → Click <b>Snap High-Res</b> once happy → Save.
+    <div id="status" class="status-box">Tap "1. Initialize" to unlock cameras.</div>
+    
+    <button class="setup" style="width:100%;" onclick="primeCameras()">1. Initialize & List Cameras</button>
+    
+    <div class="btns" style="margin-top:10px;">
+        <div>
+            <label>Select Camera</label>
+            <select id="cam-select" onchange="toggleViewfinder(true)"></select>
+        </div>
+        <div>
+            <label>Snap Resolution</label>
+            <select id="res-target">
+                <option value="1280x720">720p</option>
+                <option value="1920x1080">1080p</option>
+                <option value="3840x2160" selected>4K (Ultra)</option>
+            </select>
+        </div>
     </div>
-    <div id="status" class="status-box">Ready.</div>
-    
-    <label>Hardware Selection</label>
-    <select id="cam-select" onchange="initCameraList()"><option>Loading cameras...</option></select>
-    
-    <label>Capture Target</label>
-    <select id="res-target">
-        <option value="1280x720">720p (Safe)</option>
-        <option value="1920x1080">1080p (HD)</option>
-        <option value="3840x2160" selected>4K (Ultra)</option>
-    </select>
+
+    <video id="v-temp" autoplay playsinline></video>
 
     <div class="btns">
-        <button onclick="snap('tiny')">📷 Tiny Test</button>
-        <button class="primary" onclick="snap('high')">📸 Snap High-Res</button>
+        <button onclick="toggleViewfinder()">📡 Toggle Viewfinder</button>
+        <button class="primary" onclick="snap()">📸 SNAP HIGH-RES</button>
     </div>
+</div>
+
+<div class="card">
+    <label>Alignment Grid</label>
+    <canvas id="src-cvs"></canvas>
+    <button onclick="document.getElementById('file-in').click()" style="width:100%; margin-top:8px; font-size:12px; background:none; border:1px dashed #444;">📁 Or Import Image</button>
     <input type="file" id="file-in" style="display:none" onchange="handleFile(event)">
 </div>
 
 <div class="card">
-    <label>1. Align Source</label>
-    <canvas id="src-cvs"></canvas>
-    <button onclick="document.getElementById('file-in').click()" style="width:100%; margin-top:8px; font-size:12px;">📁 Import Existing Image</button>
-</div>
-
-<div class="card">
-    <label>2. Output Options</label>
+    <label>Adjust & Export</label>
     <div class="btns">
-        <button onclick="rotate(-90)">↺ Rotate Left</button>
-        <button onclick="rotate(90)">↻ Rotate Right</button>
+        <button onclick="rotate(-90)">↺ Rot</button>
+        <button onclick="rotate(90)">Rot ↻</button>
+        <button onclick="setAspect(1.414)">A4</button>
+        <button onclick="setAspect(1.29)">US</button>
     </div>
-    
-    <label>Aspect Ratio Presets</label>
-    <div class="btns" style="grid-template-columns: 1fr 1fr 1fr;">
-        <button onclick="setAspect(1.414)" style="font-size:11px;">A4</button>
-        <button onclick="setAspect(1.29)" style="font-size:11px;">Letter</button>
-        <button onclick="setAspect(1.58)" style="font-size:11px;">Card</button>
-    </div>
-    
-    <input type="range" id="aspect-slider" min="0.5" max="2.5" step="0.01" value="0.75" oninput="renderResult()">
-    
+    <input type="range" id="aspect-slider" min="0.5" max="2.0" step="0.01" value="0.75" oninput="renderResult()">
     <canvas id="dst-cvs"></canvas>
-    <button class="accent" style="width:100%; margin-top:12px;" onclick="download()">💾 Save Scanned Document</button>
+    <button class="accent" style="width:100%; margin-top:12px;" onclick="download()">💾 SAVE FINAL PNG</button>
 </div>
-
-<video id="v-temp" autoplay playsinline></video>
 
 <script>
 let masterData = null, masterW = 0, masterH = 0;
 let points = [], draggingIdx = -1, rotation = 0;
+let vfStream = null;
 
 const srcCvs = document.getElementById('src-cvs'), srcCtx = srcCvs.getContext('2d');
 const dstCvs = document.getElementById('dst-cvs'), dstCtx = dstCvs.getContext('2d');
 const v = document.getElementById('v-temp');
 const status = document.getElementById('status');
 
-// Initialize Camera List
-async function initCameraList() {
+// 1. PRIME CAMERAS: Request permission then list all devices
+async function primeCameras() {
+    status.innerText = "Requesting permission...";
     try {
-        await navigator.mediaDevices.getUserMedia({video: true}); // Trigger permission
+        const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
         const devices = await navigator.mediaDevices.enumerateDevices();
         const cams = devices.filter(d => d.kind === 'videoinput');
+        
         const sel = document.getElementById('cam-select');
-        sel.innerHTML = cams.map(c => `<option value="${c.deviceId}">${c.label || 'Camera '+c.deviceId.slice(0,4)}</option>`).join('');
-    } catch (e) { status.innerText = "Cam Permission Denied."; }
+        sel.innerHTML = cams.map(c => `<option value="${c.deviceId}">${c.label || 'Camera '+c.deviceId.slice(0,5)}</option>`).join('');
+        
+        // Stop temp stream
+        tempStream.getTracks().forEach(t => t.stop());
+        status.innerText = "Cameras unlocked. Choose one and toggle viewfinder.";
+    } catch (e) {
+        status.innerText = "Error: Permission denied or no camera found.";
+    }
 }
-initCameraList();
 
-async function snap(mode) {
-    const res = mode === 'tiny' ? [640, 480] : document.getElementById('res-target').value.split('x').map(Number);
+// 2. TOGGLE VIEWFINDER: Low-res preview to aim
+async function toggleViewfinder(forceOn = false) {
+    if (vfStream && !forceOn) {
+        vfStream.getTracks().forEach(t => t.stop());
+        vfStream = null;
+        v.style.display = 'none';
+        status.innerText = "Viewfinder Off.";
+    } else {
+        if (vfStream) vfStream.getTracks().forEach(t => t.stop());
+        const camId = document.getElementById('cam-select').value;
+        try {
+            vfStream = await navigator.mediaDevices.getUserMedia({
+                video: { deviceId: {exact: camId}, width: 640 }
+            });
+            v.srcObject = vfStream;
+            v.style.display = 'block';
+            status.innerText = "Viewfinder On (Low-res).";
+        } catch (e) { status.innerText = "Viewfinder failed."; }
+    }
+}
+
+// 3. THE SNAP: Terminate everything, go 4K, grab, kill.
+async function snap() {
+    const res = document.getElementById('res-target').value.split('x').map(Number);
     const camId = document.getElementById('cam-select').value;
     
-    status.innerText = `Firing ${mode} capture...`;
+    status.innerText = "CRITICAL CAPTURE STARTING...";
     
+    // Kill viewfinder to free RAM
+    if (vfStream) { vfStream.getTracks().forEach(t => t.stop()); vfStream = null; }
+
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-            video: { deviceId: camId ? {exact: camId} : undefined, width: {ideal: res[0]}, height: {ideal: res[1]} }
+        const snapStream = await navigator.mediaDevices.getUserMedia({
+            video: { deviceId: {exact: camId}, width: {ideal: res[0]}, height: {ideal: res[1]} }
         });
-        v.srcObject = stream;
+        v.srcObject = snapStream;
+        v.style.display = 'block'; // Briefly show the high-res frame
+
         await new Promise(r => v.onloadedmetadata = r);
-        await new Promise(r => setTimeout(r, 700)); // Focus/Light adjust
+        await new Promise(r => setTimeout(r, 1000)); // Focus time
         
         masterW = v.videoWidth; masterH = v.videoHeight;
         const temp = document.createElement('canvas');
         temp.width = masterW; temp.height = masterH;
-        const tCtx = temp.getContext('2d');
-        tCtx.drawImage(v, 0, 0);
-        masterData = tCtx.getImageData(0, 0, masterW, masterH);
+        temp.getContext('2d').drawImage(v, 0, 0);
+        masterData = temp.getContext('2d').getImageData(0, 0, masterW, masterH);
         
-        stream.getTracks().forEach(t => t.stop());
-        status.innerText = `Snap Success: ${masterW}x${masterH}`;
+        // KILL IMMEDIATELY
+        snapStream.getTracks().forEach(t => t.stop());
+        v.style.display = 'none';
+        
+        status.innerText = `SUCCESS: ${masterW}x${masterH} Loaded.`;
         initUI();
-    } catch (e) { status.innerText = "Capture Failed: " + e.message; }
+    } catch (e) { 
+        status.innerText = "High-res Failed. Try a lower resolution."; 
+        console.error(e);
+    }
 }
 
 function handleFile(e) {
@@ -131,9 +169,8 @@ function handleFile(e) {
             masterW = i.width; masterH = i.height;
             const t = document.createElement('canvas');
             t.width = masterW; t.height = masterH;
-            const tx = t.getContext('2d');
-            tx.drawImage(i, 0, 0);
-            masterData = tx.getImageData(0, 0, masterW, masterH);
+            t.getContext('2d').drawImage(i, 0, 0);
+            masterData = t.getContext('2d').getImageData(0, 0, masterW, masterH);
             initUI();
         };
         i.src = ev.target.result;
@@ -143,22 +180,15 @@ function handleFile(e) {
 
 function initUI() {
     srcCvs.width = 800; srcCvs.height = 800 * (masterH / masterW);
-    points = [{x:80,y:80}, {x:720,y:80}, {x:720,y:srcCvs.height-80}, {x:80,y:srcCvs.height-80}];
+    points = [{x:100,y:100}, {x:700,y:100}, {x:700,y:srcCvs.height-100}, {x:100,y:srcCvs.height-100}];
     drawSource();
     renderResult();
 }
 
-function setAspect(val) {
-    document.getElementById('aspect-slider').value = val;
-    renderResult();
-}
+function setAspect(val) { document.getElementById('aspect-slider').value = val; renderResult(); }
+function rotate(deg) { rotation = (rotation + deg) % 360; renderResult(); }
 
-function rotate(deg) {
-    rotation = (rotation + deg) % 360;
-    renderResult();
-}
-
-// Interaction
+// Interaction Logic
 srcCvs.addEventListener('pointerdown', e => {
     const r = srcCvs.getBoundingClientRect();
     const x = (e.clientX - r.left) * (srcCvs.width / r.width);
@@ -166,7 +196,6 @@ srcCvs.addEventListener('pointerdown', e => {
     draggingIdx = points.findIndex(p => Math.hypot(p.x - x, p.y - y) < 40);
     if(draggingIdx !== -1) srcCvs.setPointerCapture(e.pointerId);
 });
-
 srcCvs.addEventListener('pointermove', e => {
     if (draggingIdx === -1) return;
     const r = srcCvs.getBoundingClientRect();
@@ -174,7 +203,6 @@ srcCvs.addEventListener('pointermove', e => {
     points[draggingIdx].y = (e.clientY - r.top) * (srcCvs.height / r.height);
     drawSource();
 });
-
 srcCvs.addEventListener('pointerup', () => { draggingIdx = -1; renderResult(); });
 
 function drawSource() {
@@ -195,14 +223,9 @@ function renderResult() {
     if (!masterData) return;
     const ratio = parseFloat(document.getElementById('aspect-slider').value);
     const outW = 600; const outH = Math.round(outW / ratio);
-    
-    // We create a temporary non-rotated canvas first
-    const tCvs = document.createElement('canvas');
-    tCvs.width = outW; tCvs.height = outH;
-    const tCtx = tCvs.getContext('2d');
-    const tImg = tCtx.createImageData(outW, outH);
+    const tCvs = document.createElement('canvas'); tCvs.width = outW; tCvs.height = outH;
+    const tCtx = tCvs.getContext('2d'); const tImg = tCtx.createImageData(outW, outH);
     const dPix = tImg.data;
-
     const scale = masterW / srcCvs.width;
     const p = points.map(pt => ({ x: pt.x * scale, y: pt.y * scale }));
     const h = solveHomography(p, outW, outH);
@@ -215,23 +238,14 @@ function renderResult() {
             if (sx >= 0 && sx < masterW && sy >= 0 && sy < masterH) {
                 const sIdx = (sy * masterW + sx) * 4;
                 const dIdx = (y * outW + x) * 4;
-                dPix[dIdx] = masterData.data[sIdx];
-                dPix[dIdx+1] = masterData.data[sIdx+1];
-                dPix[dIdx+2] = masterData.data[sIdx+2];
-                dPix[dIdx+3] = 255;
+                dPix[dIdx] = masterData.data[sIdx]; dPix[dIdx+1] = masterData.data[sIdx+1];
+                dPix[dIdx+2] = masterData.data[sIdx+2]; dPix[dIdx+3] = 255;
             }
         }
     }
     tCtx.putImageData(tImg, 0, 0);
-
-    // Now handle rotation for the display canvas
-    if (rotation % 180 === 0) {
-        dstCvs.width = outW; dstCvs.height = outH;
-    } else {
-        dstCvs.width = outH; dstCvs.height = outW;
-    }
-    
-    dstCtx.clearRect(0,0,dstCvs.width, dstCvs.height);
+    if (rotation % 180 === 0) { dstCvs.width = outW; dstCvs.height = outH; }
+    else { dstCvs.width = outH; dstCvs.height = outW; }
     dstCtx.save();
     dstCtx.translate(dstCvs.width/2, dstCvs.height/2);
     dstCtx.rotate(rotation * Math.PI / 180);
