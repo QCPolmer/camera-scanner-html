@@ -84,7 +84,7 @@
 
 <video id="video_takepicture_div" autoplay playsinline></video>
 
-<h3>Source — Drag the 4 red points</h3>
+<h3>Source â€” Drag the 4 red points</h3>
 
 <div class="preview-container">
     <div>
@@ -103,7 +103,7 @@
         <label>Rotate Points:</label>
         <input type="range" id="point_rotate_slider" min="0" max="360" value="0" step="0.1" 
                oninput="rotatePoints(this.value)">
-        <span id="point_rotate_value">0°</span>
+        <span id="point_rotate_value">0Â°</span>
     </div>
 
     <div>
@@ -135,7 +135,7 @@
             <option value="1.5">3:2</option>
             <option value="1.333" selected>4:3</option>
             <option value="1">1:1 Square</option>
-            <option value="1.586">Credit Card (˜3.37:2.13)</option>
+            <option value="1.586">Credit Card (Ëœ3.37:2.13)</option>
             <option value="1.667">3x5 Card</option>
             <option value="0.707">A4 Portrait</option>
             <option value="0.772">US Letter Portrait</option>
@@ -161,7 +161,7 @@
 <canvas id="result_canvas"></canvas>
 
 <script>
-// Built with help from Grok (xAI) — feel free to use and modify freely.
+// Built with help from Grok (xAI) â€” feel free to use and modify freely.
 
 
 let torchEnabled = false;
@@ -252,7 +252,7 @@ function resetPoints(initial = false) {
     applyBlur = false;
 
     document.getElementById('point_rotate_slider').value = 0;
-    document.getElementById('point_rotate_value').textContent = '0°';
+    document.getElementById('point_rotate_value').textContent = '0Â°';
     document.getElementById('output_scale_slider').value = 1.0;
     document.getElementById('output_scale_value').textContent = '1.0';
     document.getElementById('brightness_slider').value = 0;
@@ -327,7 +327,7 @@ function switchCamera(newDeviceId) {
 // Rotate points (smooth)
 function rotatePoints(degrees) {
     pointRotation = parseFloat(degrees);
-    document.getElementById('point_rotate_value').textContent = pointRotation.toFixed(1) + '°';
+    document.getElementById('point_rotate_value').textContent = pointRotation.toFixed(1) + 'Â°';
 
     if (!capturedImage) return;
 
@@ -542,7 +542,7 @@ function forceWarp() {
 
     resultCtx.fillStyle = '#ff0';
     resultCtx.font = 'bold 18px sans-serif';
-    resultCtx.fillText(`Scale: ${outputScale.toFixed(2)}x | Aspect: ${fineAspectRatio.toFixed(3)} | Rot: ${pointRotation.toFixed(1)}°`, 30, 45);
+    resultCtx.fillText(`Scale: ${outputScale.toFixed(2)}x | Aspect: ${fineAspectRatio.toFixed(3)} | Rot: ${pointRotation.toFixed(1)}Â°`, 30, 45);
 }
 
 // Import Image
