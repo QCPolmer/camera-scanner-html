@@ -11,51 +11,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
     <title>Paper Scanner</title>
     <style>
-        body { 
-            font-family: sans-serif; 
-            margin: 10px; 
-            background: #1a1a1a; 
-            color: #eee; 
-        }
-        video, canvas { 
-            background: #111; 
-            border: 2px solid #555; 
-            margin: 8px 0; 
-            display: block; 
-            max-width: 100%; 
-        }
-        button { 
-            padding: 14px 20px; 
-            margin: 6px; 
-            font-size: 17px; 
-            background: #333; 
-            color: #fff; 
-            border: 1px solid #666; 
-            border-radius: 6px;
-        }
-        .note { 
-            background: #333; 
-            color: #ffdd00; 
-            padding: 12px; 
-            border-radius: 6px; 
-            margin-bottom: 15px; 
-        }
-        .main-area {
-            display: flex;
-            gap: 15px;
-            margin: 15px 0;
-            flex-wrap: wrap;
-        }
+        body { font-family: sans-serif; margin: 10px; background: #1a1a1a; color: #eee; }
+        video, canvas { background: #111; border: 2px solid #555; margin: 8px 0; display: block; max-width: 100%; }
+        button { padding: 14px 20px; margin: 6px; font-size: 17px; background: #333; color: #fff; border: 1px solid #666; border-radius: 6px; }
+        .note { background: #333; color: #ffdd00; padding: 12px; border-radius: 6px; margin-bottom: 15px; }
     </style>
 </head>
 <body>
 
 <div class="note">
-    <strong>Note:</strong> On mobile use landscape mode.<br>
-    Tap "Toggle Camera" twice if cameras don't appear.
+    <strong>Note:</strong> Tap "Toggle Camera" twice if the list doesn't populate.<br>
+    Use landscape on mobile.
 </div>
 
-<div class="controls">
+<div>
     <button onclick="toggleCamera()">📹 Toggle Camera</button>
     <button onclick="takePicture()">📸 Take Picture</button>
     <button onclick="importImage()">📁 Import Image</button>
@@ -75,62 +44,7 @@
 <video id="video_takepicture_div" autoplay playsinline></video>
 
 <h3>Source — Drag the 4 red points</h3>
-
-<div class="main-area">
-    <div>
-        <canvas id="source_canvas" width="800" height="600"></canvas>
-    </div>
-    <div>
-        <h4>Live Preview</h4>
-        <canvas id="live_preview" width="380" height="280"></canvas>
-    </div>
-</div>
-
-<div class="output-controls">
-    <strong>Output Controls</strong><br><br>
-    
-    <div>
-        <label>Rotate Points:</label>
-        <input type="range" id="point_rotate_slider" min="0" max="360" value="0" step="0.1" 
-               oninput="rotatePoints(this.value)">
-        <span id="point_rotate_value">0°</span>
-    </div>
-
-    <div>
-        <label>Output Scale: <span id="output_scale_value">1.0</span>x</label>
-        <input type="range" id="output_scale_slider" min="0.3" max="1.5" value="1.0" step="0.01" 
-               oninput="updateOutputScale(this.value)">
-    </div>
-
-    <div style="margin-top:10px">
-        <label>Brightness: <span id="bright_value">0</span></label>
-        <input type="range" id="brightness_slider" min="-50" max="50" value="0" step="1" 
-               oninput="updateBrightness(this.value)">
-    </div>
-
-    <div>
-        <label>Contrast: <span id="contrast_value">0</span></label>
-        <input type="range" id="contrast_slider" min="-50" max="50" value="0" step="1" 
-               oninput="updateContrast(this.value)">
-    </div>
-
-    <div style="margin-top:15px">
-        <label><input type="checkbox" id="lock_aspect" onchange="renderFull()"> Lock Aspect Ratio</label>
-    </div>
-
-    <div>
-        <label>Common Size:</label>
-        <select id="aspect_select" onchange="updateAspectFromDropdown()">
-            <option value="0">Free</option>
-            <option value="1.333" selected>4:3</option>
-            <option value="1.5">3:2</option>
-            <option value="1">1:1</option>
-            <option value="1.667">3x5 Card</option>
-            <option value="0.707">A4 Portrait</option>
-            <option value="0.772">US Letter Portrait</option>
-        </select>
-    </div>
-</div>
+<canvas id="source_canvas" width="800" height="600"></canvas>
 
 <h3>Final Warped Result</h3>
 <canvas id="result_canvas"></canvas>
@@ -143,7 +57,7 @@ let isCameraOn = false;
 let capturedImage = null;
 let currentDeviceId = null;
 
-let sourceCtx, resultCtx, previewCtx;
+let sourceCtx, resultCtx;
 let points = [];
 let draggingIndex = -1;
 let pointRotation = 0;
@@ -160,9 +74,8 @@ Array.from(document.querySelectorAll('*')).forEach(el => {
 function initCanvases() {
     sourceCtx = source_canvas.getContext('2d');
     resultCtx = result_canvas.getContext('2d');
-    previewCtx = live_preview.getContext('2d');
 
-    // Dual event system
+    // Dual listeners
     source_canvas.addEventListener('pointerdown', onPointerDown);
     source_canvas.addEventListener('pointermove', onPointerMove);
     source_canvas.addEventListener('pointerup', onPointerUp);
@@ -190,18 +103,17 @@ function resetPoints(initial = false) {
     brightness = 0;
     contrast = 0;
 
-    // Safe element checks
-    if (document.getElementById('point_rotate_slider')) document.getElementById('point_rotate_slider').value = 0;
-    if (document.getElementById('point_rotate_value')) document.getElementById('point_rotate_value').textContent = '0°';
-    if (document.getElementById('output_scale_slider')) document.getElementById('output_scale_slider').value = 1.0;
-    if (document.getElementById('output_scale_value')) document.getElementById('output_scale_value').textContent = '1.0';
-    if (document.getElementById('brightness_slider')) document.getElementById('brightness_slider').value = 0;
-    if (document.getElementById('bright_value')) document.getElementById('bright_value').textContent = '0';
-    if (document.getElementById('contrast_slider')) document.getElementById('contrast_slider').value = 0;
-    if (document.getElementById('contrast_value')) document.getElementById('contrast_value').textContent = '0';
-    if (document.getElementById('fine_aspect_slider')) document.getElementById('fine_aspect_slider').value = 1.333;
-    if (document.getElementById('fine_aspect_input')) document.getElementById('fine_aspect_input').value = '1.33';
-    if (document.getElementById('aspect_select')) document.getElementById('aspect_select').value = '1.333';
+    document.getElementById('point_rotate_slider').value = 0;
+    document.getElementById('point_rotate_value').textContent = '0°';
+    document.getElementById('output_scale_slider').value = 1.0;
+    document.getElementById('output_scale_value').textContent = '1.0';
+    document.getElementById('brightness_slider').value = 0;
+    document.getElementById('bright_value').textContent = '0';
+    document.getElementById('contrast_slider').value = 0;
+    document.getElementById('contrast_value').textContent = '0';
+    document.getElementById('fine_aspect_slider').value = 1.333;
+    document.getElementById('fine_aspect_input').value = '1.33';
+    document.getElementById('aspect_select').value = '1.333';
 
     if (!initial && capturedImage) {
         redrawSource();
@@ -209,7 +121,7 @@ function resetPoints(initial = false) {
     }
 }
 
-// Pointer events
+// Pointer
 function onPointerDown(e) {
     handleStart(e.clientX, e.clientY);
 }
@@ -224,7 +136,7 @@ function onPointerUp() {
     draggingIndex = -1;
 }
 
-// Touch events
+// Touch
 function onTouchStart(e) {
     e.preventDefault();
     const touch = e.touches[0];
@@ -301,6 +213,7 @@ function redrawSource() {
     }
 }
 
+// Render Full
 function renderFull() {
     if (!capturedImage) return;
 
@@ -360,15 +273,86 @@ function renderFull() {
     }
 
     resultCtx.putImageData(dstImageData, 0, 0);
+}
 
-    // Live preview
-    if (document.getElementById('show_live_preview') && document.getElementById('show_live_preview').checked) {
-        previewCtx.clearRect(0, 0, live_preview.width, live_preview.height);
-        previewCtx.drawImage(result_canvas, 0, 0, live_preview.width, live_preview.height);
+// Camera
+async function toggleCamera() {
+    if (isCameraOn) {
+        if (currentStream) currentStream.getTracks().forEach(t => t.stop());
+        video_takepicture_div.srcObject = null;
+        isCameraOn = false;
+        return;
+    }
+
+    try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(d => d.kind === 'videoinput');
+
+        camera_list_div.innerHTML = '';
+        videoDevices.forEach((dev, i) => {
+            const opt = document.createElement('option');
+            opt.value = dev.deviceId;
+            opt.textContent = dev.label || `Camera ${i+1}`;
+            camera_list_div.appendChild(opt);
+        });
+
+        if (videoDevices.length > 0) {
+            currentDeviceId = videoDevices[0].deviceId;
+            await startStream(currentDeviceId);
+            camera_list_div.value = currentDeviceId;
+        }
+    } catch (err) {
+        console.error(err);
+        alert("Camera error: " + err.message);
     }
 }
 
-// Simple controls
+async function startStream(deviceId) {
+    if (currentStream) currentStream.getTracks().forEach(t => t.stop());
+
+    const res = resolution_select_div.value.split('x').map(Number);
+    const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+            deviceId: deviceId ? { exact: deviceId } : undefined,
+            width: { ideal: res[0] },
+            height: { ideal: res[1] }
+        }
+    });
+
+    currentStream = stream;
+    video_takepicture_div.srcObject = stream;
+    currentDeviceId = deviceId || stream.getVideoTracks()[0].getSettings().deviceId;
+    isCameraOn = true;
+}
+
+function switchCamera(newDeviceId) {
+    if (isCameraOn && newDeviceId) startStream(newDeviceId);
+}
+
+// Other functions
+function rotatePoints(degrees) {
+    pointRotation = parseFloat(degrees);
+    document.getElementById('point_rotate_value').textContent = pointRotation.toFixed(1) + '°';
+
+    if (!capturedImage) return;
+
+    const cx = (points[0].x + points[1].x + points[2].x + points[3].x) / 4;
+    const cy = (points[0].y + points[1].y + points[2].y + points[3].y) / 4;
+    const rad = pointRotation * Math.PI / 180;
+
+    const original = JSON.parse(JSON.stringify(points));
+
+    for (let i = 0; i < 4; i++) {
+        const dx = original[i].x - cx;
+        const dy = original[i].y - cy;
+        points[i].x = cx + dx * Math.cos(rad) - dy * Math.sin(rad);
+        points[i].y = cy + dx * Math.sin(rad) + dy * Math.cos(rad);
+    }
+
+    redrawSource();
+    renderFull();
+}
+
 function updateOutputScale(val) {
     outputScale = parseFloat(val);
     document.getElementById('output_scale_value').textContent = outputScale.toFixed(2);
